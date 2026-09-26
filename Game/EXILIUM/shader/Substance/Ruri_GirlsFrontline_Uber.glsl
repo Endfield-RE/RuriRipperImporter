@@ -205,7 +205,8 @@ import lib-sparse.glsl
 //----------------------------------------------------------------------endregion
 
 //: state cull_face off
-//: state blend over
+//: state blend over { "enable": "input._CharaPartID != 4" }
+//: state blend multiply { "enable": "input._CharaPartID == 4" }
 
 //: param auto camera_view_matrix
 uniform mat4 uniform_camera_view_matrix;
@@ -239,7 +240,7 @@ uniform sampler2D _RMOTex;
 uniform sampler2D _RampMap;
 //: param custom { "default": "", "default_color": [0.0, 0.0, 0.0, 0.0], "label": "Specular Map", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _Specularmap;
-//: param custom { "default": "", "default_color": [0.2158605, 0.2158605, 0.2158605, 0.5], "label": "_BumpMap 余量(ba)", "usage": "texture", "group": "2 贴图" }
+//: param custom { "default": "", "default_color": [1.0, 1.0, 0.0, 0.0], "label": "_BumpMap 余量(ba)", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _BumpMap_ba;
 //----------------------------------------------------------------------endregion
 
@@ -629,16 +630,42 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 
 //----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
 // 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
+vec3 ruriSparseColor(SamplerSparse smp, SparseCoord coord, vec3 absent)
+{
+    vec4 s = textureSparse(smp, coord);
+    return s.rgb + absent * (1.0 - s.a);
+}
+
+float ruriSparseScalar(SamplerSparse smp, SparseCoord coord, float absent)
+{
+    vec4 s = textureSparse(smp, coord);
+    return s.r + absent * (1.0 - s.g);
+}
+
+vec3 ruriSparseNormal(SamplerSparse smp, SparseCoord coord, vec3 absent)
+{
+    vec4 s = textureSparse(smp, coord);
+    return s.a == 0.0 ? absent : normalUnpack(s);
+}
+
 float4 ruriRead_BaseMap(float2 uv) {
-    return float4((getBaseColor(basecolor_tex, ruriSparseCoord)).x, (getBaseColor(basecolor_tex, ruriSparseCoord)).y, (getBaseColor(basecolor_tex, ruriSparseCoord)).z, getOpacity(opacity_tex, ruriSparseCoord));
+    vec3 ruriInput0 = ruriSparseColor(basecolor_tex, ruriSparseCoord, vec3(1.0, 1.0, 1.0));
+    float ruriInput1 = ruriSparseScalar(opacity_tex, ruriSparseCoord, 1.0);
+    return float4(ruriInput0.x, ruriInput0.y, ruriInput0.z, ruriInput1);
 }
 
 float4 ruriRead_BumpMap(float2 uv) {
-    return float4(((getTSNormal(ruriSparseCoord)).x * 0.5 + 0.5), ((getTSNormal(ruriSparseCoord)).y * 0.5 + 0.5), (texture(_BumpMap_ba, uv)).x, (texture(_BumpMap_ba, uv)).y);
+    vec3 ruriInput0 = ruriSparseNormal(normal_texture, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
+    vec4 ruriInput1 = texture(_BumpMap_ba, uv);
+    return float4((ruriInput0.x * 0.5 + 0.5), (ruriInput0.y * 0.5 + 0.5), ruriInput1.x, ruriInput1.y);
 }
 
 float4 ruriRead_RMOSMap(float2 uv) {
-    return float4(getRoughness(roughness_tex, ruriSparseCoord), getMetallic(metallic_tex, ruriSparseCoord), getAO(ruriSparseCoord, true, use_bent_normal), getSpecularLevel(specularlevel_tex, ruriSparseCoord));
+    float ruriInput0 = ruriSparseScalar(roughness_tex, ruriSparseCoord, 0.0);
+    float ruriInput1 = ruriSparseScalar(metallic_tex, ruriSparseCoord, 0.0);
+    float ruriInput2 = ruriSparseScalar(ao_tex, ruriSparseCoord, 0.0);
+    float ruriInput3 = ruriSparseScalar(specularlevel_tex, ruriSparseCoord, 0.0);
+    return float4(ruriInput0, ruriInput1, ruriInput2, ruriInput3);
 }
 
 //----------------------------------------------------------------------endregion
@@ -950,11 +977,11 @@ float GirlsFrontline_FaceSpecular(vec2 faceUV, vec2 lightXZ, vec3 viewDirectionW
 }
 
 vec3 SampleSH(vec3 normalWS) {
-    return envIrradiance({Normal});
+    return envIrradiance(normalWS);
 }
 
 vec3 GirlsFrontline_IrradianceAlongAxis(vec3 axisWS) {
-    return envIrradiance({Normal});
+    return envIrradiance(axisWS);
 }
 
 // b3024 第 219-243 行 —— 环境漫反射。<c>_UseGIFlatten</c> 开时亮度换成 SH 在整个球面上的平均
@@ -1022,7 +1049,7 @@ vec3 GirlsFrontline_EnvironmentSpecular(vec3 specularColor, float roughness, flo
         offset = textureLod(_RampMap, ruriUvClamp(_RampMap, float2(environmentBRDF.y * saturate(dot(normalWS, lightSide)), 0.625)), 0.0).x;
     }
     vec3 reflectDirection = reflect(-viewDirectionWS, normalWS);
-    vec4 encodedIrradiance = vec4(envSampleLOD(reflectDirection, roughness * 6.0), 1.0);
+    vec4 encodedIrradiance = vec4(0.2158605, 0.2158605, 0.2158605, 0.5);
     vec3 probeColor = DecodeHDREnvironment(encodedIrradiance, unity_SpecCube0_HDR);
     return probeColor * (specularColor * environmentBRDF.x + offset);
 }
@@ -1440,18 +1467,7 @@ void shade(V2F inputs) {
     ruriInput.color = float4(1.0, 1.0, 1.0, 1.0);
     ruriInput.positionCS = gl_FragCoord;
     GBufferFragOutput ruriOut = CharaMixedPassFragment(ruriInput, ((uniform_facing >= 0) ? 1.0 : -1.0));
-    if (_CharaPartID == 4)
-    {
-        vec3 ruriFactor = clamp(ruriOut.gBuffer0.rgb, 0.0, 1.0);
-        float ruriDarken = 1.0 - min(min(ruriFactor.r, ruriFactor.g), ruriFactor.b);
-        vec3 ruriSrc = ruriDarken > 1e-5 ? (ruriFactor - (1.0 - ruriDarken)) / ruriDarken : vec3(0.0);
-        alphaOutput(ruriDarken);
-        diffuseShadingOutput(ruriSrc);
-    }
-    else
-    {
-        alphaOutput(ruriOut.gBuffer0.a);
-        diffuseShadingOutput(ruriOut.gBuffer0.rgb);
-    }
+    alphaOutput(ruriOut.gBuffer0.a);
+    diffuseShadingOutput(ruriOut.gBuffer0.rgb);
 }
 //----------------------------------------------------------------------endregion
