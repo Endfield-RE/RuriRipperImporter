@@ -3,6 +3,16 @@
 CI runs `test_legacy_resources.py`: checks the exact vendor payload, manifest
 stamp and package allowlist. It does not certify Blender rendering.
 
+`test_legacy_socket_contract.py` exercises the actual adapter's vector-transform
+method using Blender 5.3's changed input ordering. `test_legacy_vector_socket.py`
+runs the real node and existing-graph repair test in factory-startup Blender;
+passing `-- --original` deliberately reproduces the old failure on 5.3.
+The legacy runtime's input index 0 addresses the implicit `LightIndex`, not
+`Vector`, in that build. The adapter now uses `Vector` by name and migrates
+already-built legacy material trees without changing their textures/parameters.
+Implicit `LightIndex` sockets must be inspected by iteration/identifier: they
+are visible there but absent from the collection's normal name lookup.
+
 For the actual integration test, run Blender 5.3 with `--background
 --factory-startup --python-exit-code 1 --python tools/test_legacy_blender.py --
 --fixture <absolute-native-Endfield-scene.blend> --output <scratch-directory>`.

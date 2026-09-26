@@ -37,6 +37,11 @@ legacy = [m for m in bpy.data.materials if m.get('ruri_uber_stack') == c.LEGACY_
           and not m.get(c.stack().TEMPLATE_KEY)]
 assert legacy and all(m.node_tree for m in legacy)
 assert all(not any(n.bl_idname.startswith('ShaderNodeLight') for n in m.node_tree.nodes) for m in legacy)
+for m in legacy:
+    for n in m.node_tree.nodes:
+        if n.bl_idname == 'ShaderNodeVectorTransform':
+            assert n.inputs['Vector'].is_linked, (m.name, n.name)
+            assert not any(s.is_linked for s in n.inputs if s.identifier == 'LightIndex'), (m.name, n.name)
 assert before == (len(rig.data.bones), len(bpy.data.actions), rig.animation_data.action)
 print('LEGACY53_CONVERSION_PASS', count, flush=True)
 bpy.ops.wm.save_as_mainfile(filepath=str(args.output / 'legacy-test.blend'), copy=True)

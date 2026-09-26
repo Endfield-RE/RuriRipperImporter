@@ -22,6 +22,49 @@ _stack = None
 _groups = {}
 
 
+class StableGraph(legacy.G):
+    """5.3 inserts LightIndex before Vector; never address that input by index."""
+    def vtrans(self, v, frm, to, kind='VECTOR'):
+        key = ('vt', frm, to, kind, self._ck(v))
+        hit = self._cse.get(key)
+        if hit is not None:
+            return hit
+        node = self._nd('ShaderNodeVectorTransform')
+        node.vector_type = kind
+        node.convert_from = frm
+        node.convert_to = to
+        self._set(node.inputs['Vector'], v)
+        self._cse[key] = node.outputs['Vector']
+        return node.outputs['Vector']
+
+
+# Override only the adapter seam, retaining the SHA-locked vendor snapshot.
+legacy.G = StableGraph
+
+
+def repair_vector_inputs():
+    """Migrate graphs made by the initial compatibility adapter, in place."""
+    repaired = 0
+    for mat in bpy.data.materials:
+        if mat.library is not None or mat.get('ruri_uber_stack') != LEGACY_KEY or not mat.node_tree:
+            continue
+        for node in mat.node_tree.nodes:
+            if node.bl_idname != 'ShaderNodeVectorTransform':
+                continue
+            # Implicit light sockets appear in iteration but are deliberately
+            # omitted by Blender's name lookup in this 5.3 build.
+            wrong = next((s for s in node.inputs if s.identifier == 'LightIndex'), None)
+            right = node.inputs.get('Vector')
+            if wrong is None or right is None or not wrong.is_linked or right.is_linked:
+                continue
+            link = wrong.links[0]
+            source = link.from_socket
+            mat.node_tree.links.remove(link)
+            mat.node_tree.links.new(source, right)
+            repaired += 1
+    return repaired
+
+
 def plain(value):
     if hasattr(value, 'to_dict'):
         return {k: plain(v) for k, v in value.to_dict().items()}
@@ -179,6 +222,7 @@ def replace_all(materials, mode):
 
 
 def compile_all():
+    repair_vector_inputs()
     s = stack()
     mats = [m for m in bpy.data.materials if m.library is None
             and m.get('ruri_uber_stack') == LEGACY_KEY and m.get(s.TEMPLATE_KEY) is None]
