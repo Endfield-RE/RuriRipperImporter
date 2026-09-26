@@ -12,6 +12,7 @@ SOURCE_DIRS = {"Game", "Host", "Kernel", "RuriYamlDumper"}
 FORBIDDEN = {".dll", ".exe", ".pdb", ".tpk", ".blend", ".cabmap", ".nupkg", ".pyc"}
 # Upstream public node libraries are plugin resources, not game/test scenes.
 PUBLIC_SHADER_LIBRARIES = {
+    "Game/Endfield/shader/Blender/legacy52/ruri_character_uber_endfield.blend",
     "Game/AzurPromilia/shader/Blender/ruri_character_uber_azurpromilia.blend",
     "Game/AzurPromilia/shader/Blender/ruri_post_azurpromilia.blend",
     "Game/EXILIUM/shader/Blender/ruri_character_uber_girlsfrontline.blend",

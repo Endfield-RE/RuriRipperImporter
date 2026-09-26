@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# Verbatim, SHA-locked vendor snapshot (also checked on Linux CI).
+Game/Endfield/shader/Blender/legacy52/runtime.py -text -whitespace

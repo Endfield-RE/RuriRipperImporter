@@ -23,6 +23,23 @@
    character before applying animation with **Play On Rig**. Old RCM6 indices
    should be rebuilt for this Statement backend rather than reused as RCM7.
 
+## Optional Endfield legacy character shading
+
+In Blender 5.3, open **N > RuriRipper > Endfield Shader Compatibility**.
+Choose **Legacy 5.2 Compatible**. Subsequent character imports use the pinned
+legacy shader; for characters already in the scene, click **Apply Mode to Scene
+Characters**. Choose **Native 5.3** and apply again to return to current shading.
+The choice is saved per scene, not globally in Blender preferences.
+
+This changes character materials and their generated outline/vertex modifiers,
+not meshes, armatures, animation curves or backend decoding. Original geometry
+and animation imports remain on the Statement architecture. The existing
+character-material bindings are replaced, including other users of shared
+materials; save a scene copy before applying. Native mode remains the default.
+Scene shaders and post-processing remain native. This is not Blender 5.2 support.
+Lighting/world settings are retained: matching the old look also requires
+matching its lighting; this option does not delete user lamps or choose an HDRI.
+
 ## Which backend?
 
 - The public backend repository's **Build Hooks** workflow emits
