@@ -121,11 +121,14 @@ def runtime_dir():
 
 
 def activate():
-    """Put the private folder on sys.path (idempotent). Safe to call before the
-    install has happened -- a missing folder is simply not added."""
+    """Use packaged Blender wheels first, then the writable private folder."""
+    addon_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    bundled = os.path.join(addon_root, "_bundled", abi_tag())
+    if os.path.isdir(bundled) and bundled not in sys.path:
+        sys.path.insert(0, bundled)
     target = runtime_dir()
     if os.path.isdir(target) and target not in sys.path:
-        sys.path.insert(0, target)
+        sys.path.insert(1 if bundled in sys.path else 0, target)
     return target
 
 

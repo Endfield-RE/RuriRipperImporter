@@ -3,17 +3,18 @@
 Use branch `codex/blender-5.2`, tested with Blender 5.2.2 LTS on Windows x64.
 Do not mix this frontend with the Statement/Blender 5.3 backend.
 
-1. Download the **RuriRipperImporter-Blender52** Actions artifact from this branch.
+1. Download the **RuriRipperImporter-Blender-5.2** Actions artifact from this branch.
 2. Extract the outer Actions download; install the inner
-   `RuriRipperImporter-Blender52.zip` in Blender Preferences > Add-ons.
+   `RuriRipperImporter-Blender-5.2.zip` in Blender Preferences > Add-ons.
 3. Endfield support is a separate **private** download from the
    `KawakazeNotFound/Endfield-GameHook` repository's same branch:
-   **Endfield-Blender52-Runtime-Windows-x64**.
-4. Extract its inner ZIP and set the addon's backend Bin Dir to its `runtime`
+   **RuriHookBin-Blender-5.2-Windows-x64**.
+4. Extract its inner `RuriHookBin-Blender-5.2-Windows-x64.zip` and set the addon's
+   backend Bin Dir to its `RuriHookBin`
    directory, containing the accepted legacy `Ruri.RipperHook.dll`.
    SHA256: `9F9355D95C5FF7015399128DE1444345712E7799ADE4AD248B34D45B505C1F95`.
-5. Install .NET 10 runtime/SDK and allow the existing Python dependency bootstrap
-   to provision its dependencies. Restart Blender before testing a clean scene.
+5. Install .NET 10 ASP.NET Core Runtime. The add-on ZIP includes its Windows x64
+   CPython 3.13 Python bridge dependencies. Restart Blender before testing a clean scene.
 
 Actions downloads require GitHub sign-in; private artifacts additionally require
 repository read access. Public installation grants no private repository access.

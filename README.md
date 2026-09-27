@@ -3,7 +3,7 @@
 ## Blender 5.2 维护分支
 
 `codex/blender-5.2` 使用旧桥接 ABI 和原版 5.2 着色器，实测 Blender 5.2.2。
-安装与公私有依赖说明见 [INSTALL.md](INSTALL.md)。Actions 产物名带 `Blender52`，
+安装与公私有依赖说明见 [INSTALL.md](INSTALL.md)。Actions 产物名带 `Blender-5.2`，
 请勿搭配 main 的 Statement / Blender 5.3 后端。五个着色器模板随包完整提供。
 
 **Unity 原生 YAML 直进 Blender,无损。不走 FBX,不重导出,不绕弯。**

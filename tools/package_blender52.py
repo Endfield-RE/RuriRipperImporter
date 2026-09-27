@@ -7,6 +7,7 @@ import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON_RUNTIME = ROOT / 'dist/.python-runtime/cp313-win_amd64'
 DIRS = {'Game', 'RuriRipperPyBridge', 'RuriYamlDumper', 'endfield_animation'}
 SHADERS = 'Game/EndField/shader/'
 FORBIDDEN = {'.dll', '.exe', '.pdb', '.tpk', '.cabmap', '.nupkg', '.pyc'}
@@ -36,6 +37,14 @@ def build():
         entries[name] = data
     for name, digest in hashes.items():
         assert hashlib.sha256(entries[SHADERS + name]).hexdigest() == digest, name
+    required_runtime = {'clr.py', '_cffi_backend.cp313-win_amd64.pyd',
+                        'pythonnet/__init__.py', 'pythonnet/runtime/Python.Runtime.dll'}
+    runtime_files = {p.relative_to(PYTHON_RUNTIME).as_posix(): p for p in PYTHON_RUNTIME.rglob('*')
+                     if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc'}
+    assert required_runtime <= runtime_files.keys(), required_runtime - runtime_files.keys()
+    for name, path in runtime_files.items():
+        assert not path.is_symlink() and path.resolve().is_relative_to(PYTHON_RUNTIME.resolve()), name
+        entries['_bundled/cp313-win_amd64/' + name] = path.read_bytes()
     tree = ast.parse(entries[SHADERS + 'ruri_endfield.py'])
     manifests = next(json.loads(ast.literal_eval(n.value.args[0])) for n in tree.body
                      if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'MANIFESTS' for t in n.targets))
@@ -46,10 +55,11 @@ def build():
         'backend_commit': git('rev-parse', 'HEAD:Ruri.RipperHook').decode().strip(),
         'abi': 'legacy52', 'tested_blender': '5.2.2',
         'includes_backend': False, 'includes_private_module': False,
+        'bundled_python': 'cp313-win_amd64: pythonnet 3.1.0, clr-loader 0.3.1, cffi 2.1.1, pycparser 3.0',
         'shader_sha256': hashes}, indent=2).encode()
     out = ROOT / 'dist'
     out.mkdir(exist_ok=True)
-    archive = out / 'RuriRipperImporter-Blender52.zip'
+    archive = out / 'RuriRipperImporter-Blender-5.2.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
         for name, data in sorted(entries.items()):
             info = zipfile.ZipInfo('RuriRipperImporter/' + name, (1980, 1, 1, 0, 0, 0))
