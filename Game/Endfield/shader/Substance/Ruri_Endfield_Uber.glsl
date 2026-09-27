@@ -543,7 +543,8 @@ import lib-sparse.glsl
 //----------------------------------------------------------------------endregion
 
 //: state cull_face off
-//: state blend over
+//: state blend over { "enable": "input._CharaPartID != 7" }
+//: state blend multiply { "enable": "input._CharaPartID == 7" }
 
 //: param auto camera_view_matrix
 uniform mat4 uniform_camera_view_matrix;
@@ -561,8 +562,6 @@ uniform SamplerSparse basecolor_tex;
 uniform SamplerSparse opacity_tex;
 //: param custom { "default": "", "default_color": [0.0, 0.0, 0.0, 0.0], "label": "Blend Tex", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _BlendTex;
-//: param custom { "default": "", "default_color": [0.2158605, 0.2158605, 0.2158605, 0.5], "label": "Cubemap", "usage": "texture", "group": "2 贴图" }
-uniform sampler2D _CharMaxCubemap;
 //: param auto channel_user1
 uniform SamplerSparse slot_user1_tex;
 //: param custom { "default": "", "default_color": [1.0, 1.0, 1.0, 1.0], "label": "Diffuse Ramp", "usage": "texture", "group": "2 贴图" }
@@ -615,13 +614,13 @@ uniform sampler2D _StrokeMap;
 uniform sampler2D _VFXSpecialBlendTex;
 //: param custom { "default": "", "default_color": [1.0, 1.0, 1.0, 1.0], "label": "VFX Special Main Tex", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _VFXSpecialMainTex;
-//: param custom { "default": "", "default_color": [0.2158605, 0.2158605, 0.2158605, 0.5], "label": "_BumpMap 余量(ba)", "usage": "texture", "group": "2 贴图" }
+//: param custom { "default": "", "default_color": [1.0, 1.0, 0.0, 0.0], "label": "_BumpMap 余量(ba)", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _BumpMap_ba;
-//: param custom { "default": "", "default_color": [0.2158605, 0.2158605, 0.2158605, 0.5], "label": "_ClearCoatMask 余量(gba)", "usage": "texture", "group": "2 贴图" }
+//: param custom { "default": "", "default_color": [1.0, 1.0, 1.0, 0.0], "label": "_ClearCoatMask 余量(gba)", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _ClearCoatMask_gba;
-//: param custom { "default": "", "default_color": [0.2158605, 0.2158605, 0.2158605, 0.5], "label": "_ParallaxTex 余量(gba)", "usage": "texture", "group": "2 贴图" }
+//: param custom { "default": "", "default_color": [1.0, 1.0, 1.0, 0.0], "label": "_ParallaxTex 余量(gba)", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _ParallaxTex_gba;
-//: param custom { "default": "", "default_color": [0.2158605, 0.2158605, 0.2158605, 0.5], "label": "_SplitNormalMap 余量(ba)", "usage": "texture", "group": "2 贴图" }
+//: param custom { "default": "", "default_color": [0.2158605, 0.5, 0.0, 0.0], "label": "_SplitNormalMap 余量(ba)", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _SplitNormalMap_ba;
 //----------------------------------------------------------------------endregion
 
@@ -985,36 +984,74 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 
 //----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
 // 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
+vec3 ruriSparseColor(SamplerSparse smp, SparseCoord coord, vec3 absent)
+{
+    vec4 s = textureSparse(smp, coord);
+    return s.rgb + absent * (1.0 - s.a);
+}
+
+float ruriSparseScalar(SamplerSparse smp, SparseCoord coord, float absent)
+{
+    vec4 s = textureSparse(smp, coord);
+    return s.r + absent * (1.0 - s.g);
+}
+
+vec3 ruriSparseNormal(SamplerSparse smp, SparseCoord coord, vec3 absent)
+{
+    vec4 s = textureSparse(smp, coord);
+    return s.a == 0.0 ? absent : normalUnpack(s);
+}
+
 float4 ruriRead_BaseMap(float2 uv) {
-    return float4((getBaseColor(basecolor_tex, ruriSparseCoord)).x, (getBaseColor(basecolor_tex, ruriSparseCoord)).y, (getBaseColor(basecolor_tex, ruriSparseCoord)).z, getOpacity(opacity_tex, ruriSparseCoord));
+    vec3 ruriInput0 = ruriSparseColor(basecolor_tex, ruriSparseCoord, vec3(1.0, 1.0, 1.0));
+    float ruriInput1 = ruriSparseScalar(opacity_tex, ruriSparseCoord, 1.0);
+    return float4(ruriInput0.x, ruriInput0.y, ruriInput0.z, ruriInput1);
 }
 
 float4 ruriRead_BumpMap(float2 uv) {
-    return float4(((getTSNormal(ruriSparseCoord)).x * 0.5 + 0.5), ((getTSNormal(ruriSparseCoord)).y * 0.5 + 0.5), (texture(_BumpMap_ba, uv)).x, (texture(_BumpMap_ba, uv)).y);
+    vec3 ruriInput0 = ruriSparseNormal(normal_texture, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
+    vec4 ruriInput1 = texture(_BumpMap_ba, uv);
+    return float4((ruriInput0.x * 0.5 + 0.5), (ruriInput0.y * 0.5 + 0.5), ruriInput1.x, ruriInput1.y);
 }
 
 float4 ruriRead_ClearCoatMask(float2 uv) {
-    return float4(textureSparse(slot_user1_tex, ruriSparseCoord).r, (texture(_ClearCoatMask_gba, uv)).x, (texture(_ClearCoatMask_gba, uv)).y, (texture(_ClearCoatMask_gba, uv)).z);
+    float ruriInput0 = ruriSparseScalar(slot_user1_tex, ruriSparseCoord, 1.0);
+    vec4 ruriInput1 = texture(_ClearCoatMask_gba, uv);
+    return float4(ruriInput0, ruriInput1.x, ruriInput1.y, ruriInput1.z);
 }
 
 float4 ruriRead_EmissionMap(float2 uv) {
-    return float4((pbrComputeEmissive(emissive_tex, ruriSparseCoord)).x, (pbrComputeEmissive(emissive_tex, ruriSparseCoord)).y, (pbrComputeEmissive(emissive_tex, ruriSparseCoord)).z, textureSparse(slot_user2_tex, ruriSparseCoord).r);
+    vec3 ruriInput0 = ruriSparseColor(emissive_tex, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
+    float ruriInput1 = ruriSparseScalar(slot_user2_tex, ruriSparseCoord, 0.0);
+    return float4(ruriInput0.x, ruriInput0.y, ruriInput0.z, ruriInput1);
 }
 
 float4 ruriRead_MetallicGlossMap(float2 uv) {
-    return float4(getMetallic(metallic_tex, ruriSparseCoord), getSpecularLevel(specularlevel_tex, ruriSparseCoord), getAO(ruriSparseCoord, true, use_bent_normal), (1.0 - getRoughness(roughness_tex, ruriSparseCoord)));
+    float ruriInput0 = ruriSparseScalar(metallic_tex, ruriSparseCoord, 1.0);
+    float ruriInput1 = ruriSparseScalar(specularlevel_tex, ruriSparseCoord, 1.0);
+    float ruriInput2 = ruriSparseScalar(ao_tex, ruriSparseCoord, 1.0);
+    float ruriInput3 = ruriSparseScalar(roughness_tex, ruriSparseCoord, 0.0);
+    return float4(ruriInput0, ruriInput1, ruriInput2, (ruriInput3 * -1.0 + 1.0));
 }
 
 float4 ruriRead_ParallaxTex(float2 uv) {
-    return float4(textureSparse(height_tex, ruriSparseCoord).r, (texture(_ParallaxTex_gba, uv)).x, (texture(_ParallaxTex_gba, uv)).y, (texture(_ParallaxTex_gba, uv)).z);
+    float ruriInput0 = ruriSparseScalar(height_tex, ruriSparseCoord, 1.0);
+    vec4 ruriInput1 = texture(_ParallaxTex_gba, uv);
+    return float4(ruriInput0, ruriInput1.x, ruriInput1.y, ruriInput1.z);
 }
 
 float4 ruriRead_RMOSMap(float2 uv) {
-    return float4(getRoughness(roughness_tex, ruriSparseCoord), getMetallic(metallic_tex, ruriSparseCoord), getAO(ruriSparseCoord, true, use_bent_normal), getSpecularLevel(specularlevel_tex, ruriSparseCoord));
+    float ruriInput0 = ruriSparseScalar(roughness_tex, ruriSparseCoord, 0.0);
+    float ruriInput1 = ruriSparseScalar(metallic_tex, ruriSparseCoord, 0.0);
+    float ruriInput2 = ruriSparseScalar(ao_tex, ruriSparseCoord, 0.0);
+    float ruriInput3 = ruriSparseScalar(specularlevel_tex, ruriSparseCoord, 0.0);
+    return float4(ruriInput0, ruriInput1, ruriInput2, ruriInput3);
 }
 
 float4 ruriRead_SplitNormalMap(float2 uv) {
-    return float4(((getTSNormal(ruriSparseCoord)).x * 0.5 + 0.5), ((getTSNormal(ruriSparseCoord)).y * 0.5 + 0.5), (texture(_SplitNormalMap_ba, uv)).x, (texture(_SplitNormalMap_ba, uv)).y);
+    vec3 ruriInput0 = ruriSparseNormal(normal_texture, ruriSparseCoord, vec3(-0.568279, -0.568279, 0.0));
+    vec4 ruriInput1 = texture(_SplitNormalMap_ba, uv);
+    return float4((ruriInput0.x * 0.5 + 0.5), (ruriInput0.y * 0.5 + 0.5), ruriInput1.x, ruriInput1.y);
 }
 
 //----------------------------------------------------------------------endregion
@@ -2179,7 +2216,7 @@ vec3 IBL_SpecularSplitSum_Endfield_Probe(vec3 V, vec3 N, float NdotV_spec, float
 {
     vec3 reflDir = reflect(-V, N);
     float cubeMip = log2(max(roughnessRaw, 0.001)) * 1.2 + 5.0;
-    vec4 cubeEnc = vec4(envSampleLOD(reflDir, cubeMip), 1.0);
+    vec4 cubeEnc = vec4(0.2158605, 0.2158605, 0.2158605, 0.5);
     vec3 cubeSample = DecodeHDREnvironment(cubeEnc, unity_SpecCube0_HDR);
     return IBL_SplitSumCombine(cubeSample, NdotV_spec, roughness, specRampEnv, ambIntensity, ambCol);
 }
@@ -2567,7 +2604,7 @@ vec3 IBL_SpecularSplitSum_Endfield(vec3 V, vec3 N, float NdotV_spec, float rough
 {
     vec3 reflDir = reflect(-V, N);
     float cubeMip = log2(max(roughnessRaw, 0.001)) * 1.2 + 5.0;
-    vec3 cubeSample = vec4(envSampleLOD(reflDir, cubeMip), 1.0).rgb;
+    vec3 cubeSample = vec4(0.2158605, 0.2158605, 0.2158605, 0.5).rgb;
     return IBL_SplitSumCombine(cubeSample, NdotV_spec, roughness, specRampEnv, ambIntensity, ambCol);
 }
 
@@ -2575,7 +2612,7 @@ vec3 BRDF_ClearCoat_IBL_Burley(vec3 V, vec3 ccN, float ccPercRough, float ccAlph
 {
     vec3 ccReflDir = reflect(-V, ccN);
     float ccCubeMip = log2(max(ccPercRough, 0.001)) * 1.2 + 5.0;
-    vec3 ccCubeSmp = vec4(envSampleLOD(ccReflDir, ccCubeMip), 1.0).rgb;
+    vec3 ccCubeSmp = vec4(0.2158605, 0.2158605, 0.2158605, 0.5).rgb;
     float ccNdotV_ibl = saturate(dot(ccN, V));
     float ccDfgX;
     float ccDfgY;
@@ -3024,18 +3061,7 @@ void shade(V2F inputs) {
     ruriInput.color = float4(1.0, 1.0, 1.0, 1.0);
     ruriInput.positionCS = gl_FragCoord;
     GBufferFragOutput ruriOut = CharaMixedPassFragment(ruriInput, ((uniform_facing >= 0) ? 1.0 : -1.0));
-    if (_CharaPartID == 7)
-    {
-        vec3 ruriFactor = clamp(ruriOut.gBuffer0.rgb, 0.0, 1.0);
-        float ruriDarken = 1.0 - min(min(ruriFactor.r, ruriFactor.g), ruriFactor.b);
-        vec3 ruriSrc = ruriDarken > 1e-5 ? (ruriFactor - (1.0 - ruriDarken)) / ruriDarken : vec3(0.0);
-        alphaOutput(ruriDarken);
-        diffuseShadingOutput(ruriSrc);
-    }
-    else
-    {
-        alphaOutput(ruriOut.gBuffer0.a);
-        diffuseShadingOutput(BlenderTonemap_Endfield(ruriOut.gBuffer0.rgb));
-    }
+    alphaOutput(ruriOut.gBuffer0.a);
+    diffuseShadingOutput((_CharaPartID == 7) ? ruriOut.gBuffer0.rgb : BlenderTonemap_Endfield(ruriOut.gBuffer0.rgb));
 }
 //----------------------------------------------------------------------endregion

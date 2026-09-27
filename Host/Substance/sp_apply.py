@@ -560,10 +560,12 @@ def apply_display_settings(report, options=None):
     instead meant three switches nothing ever wrote and therefore three
     switches that did nothing.
 
-    EndField_Uber's own header states both: [H6] the reflection cubemap becomes
-    Painter's environment (CharCubemap.exr is the matching capture), and [H9]
-    the HG post tonemap is built INTO the shader, so Painter's display tone
-    mapping must be Linear or it is applied twice."""
+    CharCubemap.exr is only the display environment: the backdrop, and the ambient
+    irradiance of shaders that ask the host for it. The reflection cubes the source
+    samples are runtime globals no Painter shader can bind, so the generated shader
+    reads the engine's empty-cube value there, as every other host does. The HG post
+    tonemap is built INTO the shader ([H9]), so Painter's display tone mapping must
+    be Linear or it is applied twice."""
     options = settings.import_options() if options is None else options
     if _display is None or getattr(_display, "set_environment_resource", None) is None:
         report.append("note: this Painter build has no display API -- set the environment "
@@ -708,10 +710,7 @@ def apply(plans, baked_channels, baked_params, report, options=None):
         return False
 
     for ts_obj in texture_sets:
-        try:
-            set_name = ts_obj.name() if callable(getattr(ts_obj, "name", None)) else str(ts_obj)
-        except Exception:
-            set_name = str(ts_obj)
+        set_name = str(ts_obj.name)
         plan = plans.get(set_name)
         if plan is None:
             report.append("* {0}".format(set_name))

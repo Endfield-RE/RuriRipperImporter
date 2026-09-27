@@ -1339,14 +1339,10 @@
       "Components": 3,
       "Encoding": "Color",
       "Format": "sRGB8",
-      "Absent": [
-        1,
-        1,
-        1
-      ],
+      "Absent": [],
       "Label": "反照率(线性化后的漫反射基色)",
       "Declaration": "//: param auto channel_basecolor\nuniform SamplerSparse basecolor_tex;",
-      "Getter": "getBaseColor(basecolor_tex, {coord})",
+      "Getter": "ruriSparseColor(basecolor_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_BaseMap",
@@ -1362,12 +1358,10 @@
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        1
-      ],
+      "Absent": [],
       "Label": "不透明度 [0,1]",
       "Declaration": "//: param auto channel_opacity\nuniform SamplerSparse opacity_tex;",
-      "Getter": "getOpacity(opacity_tex, {coord})",
+      "Getter": "ruriSparseScalar(opacity_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_BaseMap",
@@ -1382,8 +1376,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "Blend Tex",
       "Declaration": "",
       "Getter": "",
@@ -1402,14 +1401,10 @@
       "Components": 3,
       "Encoding": "Normal",
       "Format": "RGB16F",
-      "Absent": [
-        0,
-        0,
-        1
-      ],
+      "Absent": [],
       "Label": "切空间法线(已解包的三分量单位向量)",
       "Declaration": "",
-      "Getter": "getTSNormal({coord})",
+      "Getter": "ruriSparseNormal(normal_texture, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_BumpMap",
@@ -1424,37 +1419,16 @@
       ]
     },
     {
-      "Kind": "RawTexture",
-      "Id": "_CharMaxCubemap",
-      "Semantic": "",
-      "Components": 4,
-      "Encoding": "",
-      "Format": "",
-      "Absent": [],
-      "Label": "Cubemap",
-      "Declaration": "",
-      "Getter": "",
-      "Sources": [
-        {
-          "Source": "_CharMaxCubemap",
-          "Channels": "rgba",
-          "Operation": ""
-        }
-      ]
-    },
-    {
       "Kind": "OverflowChannel",
       "Id": "user1",
       "Semantic": "ClearCoatMask",
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        1
-      ],
+      "Absent": [],
       "Label": "清漆层遮罩 [0,1]",
       "Declaration": "//: param auto channel_user1\nuniform SamplerSparse slot_user1_tex;",
-      "Getter": "textureSparse(slot_user1_tex, {coord}).r",
+      "Getter": "ruriSparseScalar(slot_user1_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_ClearCoatMask",
@@ -1469,8 +1443,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Diffuse Ramp",
       "Declaration": "",
       "Getter": "",
@@ -1488,8 +1467,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Disturb Tex 1",
       "Declaration": "",
       "Getter": "",
@@ -1508,14 +1492,10 @@
       "Components": 3,
       "Encoding": "Color",
       "Format": "sRGB8",
-      "Absent": [
-        0,
-        0,
-        0
-      ],
+      "Absent": [],
       "Label": "自发光辐射色",
       "Declaration": "",
-      "Getter": "pbrComputeEmissive(emissive_tex, {coord})",
+      "Getter": "ruriSparseColor(emissive_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_EmissionMap",
@@ -1531,12 +1511,10 @@
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        1
-      ],
+      "Absent": [],
       "Label": "自发光强度遮罩 [0,1](逐像素选哪里发光/呼吸)",
       "Declaration": "//: param auto channel_user2\nuniform SamplerSparse slot_user2_tex;",
-      "Getter": "textureSparse(slot_user2_tex, {coord}).r",
+      "Getter": "ruriSparseScalar(slot_user2_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_EmissionMap",
@@ -1551,8 +1529,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "Emotion Map",
       "Declaration": "",
       "Getter": "",
@@ -1570,8 +1553,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "bump",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0.5,
+        0.5,
+        1,
+        1
+      ],
       "Label": "毛发方向(RG)疏密(B)长短(A)",
       "Declaration": "",
       "Getter": "",
@@ -1589,8 +1577,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "皮毛染色",
       "Declaration": "",
       "Getter": "",
@@ -1608,8 +1601,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Fur Noise",
       "Declaration": "",
       "Getter": "",
@@ -1623,31 +1621,17 @@
     },
     {
       "Kind": "RawTexture",
-      "Id": "_HairBrowMask",
-      "Semantic": "",
-      "Components": 4,
-      "Encoding": "",
-      "Format": "white",
-      "Absent": [],
-      "Label": "Hair Brow Mask",
-      "Declaration": "",
-      "Getter": "",
-      "Sources": [
-        {
-          "Source": "_HairBrowMask",
-          "Channels": "rgba",
-          "Operation": ""
-        }
-      ]
-    },
-    {
-      "Kind": "RawTexture",
       "Id": "_HighlightMap",
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "HighlightMap",
       "Declaration": "",
       "Getter": "",
@@ -1665,8 +1649,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "Line Map",
       "Declaration": "",
       "Getter": "",
@@ -1684,8 +1673,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Main Tex",
       "Declaration": "",
       "Getter": "",
@@ -1703,8 +1697,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Mask Tex",
       "Declaration": "",
       "Getter": "",
@@ -1722,8 +1721,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Matcap",
       "Declaration": "",
       "Getter": "",
@@ -1742,12 +1746,10 @@
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        0
-      ],
+      "Absent": [],
       "Label": "金属度 [0,1]",
       "Declaration": "//: param auto channel_metallic\nuniform SamplerSparse metallic_tex;",
-      "Getter": "getMetallic(metallic_tex, {coord})",
+      "Getter": "ruriSparseScalar(metallic_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1768,12 +1770,10 @@
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        1
-      ],
+      "Absent": [],
       "Label": "高光强度系数 [0,1](非金属 F0 的缩放)",
       "Declaration": "//: param auto channel_specularlevel\nuniform SamplerSparse specularlevel_tex;",
-      "Getter": "getSpecularLevel(specularlevel_tex, {coord})",
+      "Getter": "ruriSparseScalar(specularlevel_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1794,12 +1794,10 @@
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        1
-      ],
+      "Absent": [],
       "Label": "环境光遮蔽 [0,1](1 = 无遮蔽)",
       "Declaration": "",
-      "Getter": "getAO({coord}, true, use_bent_normal)",
+      "Getter": "ruriSparseScalar(ao_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1820,12 +1818,10 @@
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        0.5
-      ],
+      "Absent": [],
       "Label": "粗糙度 [0,1] = 1 - 光滑度",
       "Declaration": "//: param auto channel_roughness\nuniform SamplerSparse roughness_tex;",
-      "Getter": "getRoughness(roughness_tex, {coord})",
+      "Getter": "ruriSparseScalar(roughness_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1845,8 +1841,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "bump",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0.5,
+        0.5,
+        1,
+        1
+      ],
       "Label": "法线图",
       "Declaration": "",
       "Getter": "",
@@ -1859,37 +1860,16 @@
       ]
     },
     {
-      "Kind": "RawTexture",
-      "Id": "_OutlineMask",
-      "Semantic": "",
-      "Components": 4,
-      "Encoding": "",
-      "Format": "white",
-      "Absent": [],
-      "Label": "Outline Mask",
-      "Declaration": "",
-      "Getter": "",
-      "Sources": [
-        {
-          "Source": "_OutlineMask",
-          "Channels": "rgba",
-          "Operation": ""
-        }
-      ]
-    },
-    {
       "Kind": "NativeChannel",
       "Id": "height",
       "Semantic": "Height",
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
-      "Absent": [
-        0
-      ],
+      "Absent": [],
       "Label": "视差/位移高度 [0,1]",
       "Declaration": "//: param auto channel_height\nuniform SamplerSparse height_tex;",
-      "Getter": "textureSparse(height_tex, {coord}).r",
+      "Getter": "ruriSparseScalar(height_tex, {coord}, {absent})",
       "Sources": [
         {
           "Source": "_ParallaxTex",
@@ -1900,50 +1880,17 @@
     },
     {
       "Kind": "RawTexture",
-      "Id": "_PerObjectScreenSpaceShadowmapTexture",
-      "Semantic": "",
-      "Components": 4,
-      "Encoding": "",
-      "Format": "white",
-      "Absent": [],
-      "Label": "_PerObjectScreenSpaceShadowmapTexture",
-      "Declaration": "",
-      "Getter": "",
-      "Sources": [
-        {
-          "Source": "_PerObjectScreenSpaceShadowmapTexture",
-          "Channels": "rgba",
-          "Operation": ""
-        }
-      ]
-    },
-    {
-      "Kind": "RawTexture",
-      "Id": "_RampMap",
-      "Semantic": "",
-      "Components": 4,
-      "Encoding": "",
-      "Format": "white",
-      "Absent": [],
-      "Label": "Diffuse Ramp Map",
-      "Declaration": "",
-      "Getter": "",
-      "Sources": [
-        {
-          "Source": "_RampMap",
-          "Channels": "rgba",
-          "Operation": ""
-        }
-      ]
-    },
-    {
-      "Kind": "RawTexture",
       "Id": "_SDFLightmap",
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "SDF Lightmap",
       "Declaration": "",
       "Getter": "",
@@ -1961,8 +1908,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "RimMask/SDFMask/FlatSHMask",
       "Declaration": "",
       "Getter": "",
@@ -1976,31 +1928,17 @@
     },
     {
       "Kind": "RawTexture",
-      "Id": "_ScreenSpaceShadowMask",
-      "Semantic": "",
-      "Components": 4,
-      "Encoding": "",
-      "Format": "white",
-      "Absent": [],
-      "Label": "_ScreenSpaceShadowMask",
-      "Declaration": "",
-      "Getter": "",
-      "Sources": [
-        {
-          "Source": "_ScreenSpaceShadowMask",
-          "Channels": "rgba",
-          "Operation": ""
-        }
-      ]
-    },
-    {
-      "Kind": "RawTexture",
       "Id": "_ShadowLutTex",
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Shadow Color Lut",
       "Declaration": "",
       "Getter": "",
@@ -2018,8 +1956,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "丝袜遮罩",
       "Declaration": "",
       "Getter": "",
@@ -2037,8 +1980,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "Specular Ramp",
       "Declaration": "",
       "Getter": "",
@@ -2056,8 +2004,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "linearGrey",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
       "Label": "Stroke Map(R:anisotropy G:specular offset)",
       "Declaration": "",
       "Getter": "",
@@ -2075,8 +2028,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "black",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        0,
+        0,
+        0,
+        0
+      ],
       "Label": "VFX Special Blend Tex",
       "Declaration": "",
       "Getter": "",
@@ -2094,8 +2052,13 @@
       "Semantic": "",
       "Components": 4,
       "Encoding": "",
-      "Format": "white",
-      "Absent": [],
+      "Format": "",
+      "Absent": [
+        1,
+        1,
+        1,
+        1
+      ],
       "Label": "VFX Special Main Tex",
       "Declaration": "",
       "Getter": "",
@@ -2114,7 +2077,10 @@
       "Components": 2,
       "Encoding": "",
       "Format": "",
-      "Absent": [],
+      "Absent": [
+        1,
+        1
+      ],
       "Label": "_BumpMap 余量(ba)",
       "Declaration": "",
       "Getter": "",
@@ -2133,7 +2099,11 @@
       "Components": 3,
       "Encoding": "",
       "Format": "",
-      "Absent": [],
+      "Absent": [
+        1,
+        1,
+        1
+      ],
       "Label": "_ClearCoatMask 余量(gba)",
       "Declaration": "",
       "Getter": "",
@@ -2152,7 +2122,11 @@
       "Components": 3,
       "Encoding": "",
       "Format": "",
-      "Absent": [],
+      "Absent": [
+        1,
+        1,
+        1
+      ],
       "Label": "_ParallaxTex 余量(gba)",
       "Declaration": "",
       "Getter": "",
@@ -2171,7 +2145,10 @@
       "Components": 2,
       "Encoding": "",
       "Format": "",
-      "Absent": [],
+      "Absent": [
+        0.2158605,
+        0.5
+      ],
       "Label": "_SplitNormalMap 余量(ba)",
       "Declaration": "",
       "Getter": "",
@@ -2192,25 +2169,29 @@
           "Input": "basecolor",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "basecolor",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "basecolor",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "opacity",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": true
@@ -2222,25 +2203,29 @@
           "Input": "_BlendTex",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_BlendTex",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_BlendTex",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_BlendTex",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -2252,58 +2237,32 @@
           "Input": "normal",
           "Component": 0,
           "Operation": "repack_normal",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "normal",
           "Component": 1,
           "Operation": "repack_normal",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_BumpMap_ba",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_BumpMap_ba",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": true
-    },
-    {
-      "Source": "_CharMaxCubemap",
-      "Lanes": [
-        {
-          "Input": "_CharMaxCubemap",
-          "Component": 0,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_CharMaxCubemap",
-          "Component": 1,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_CharMaxCubemap",
-          "Component": 2,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_CharMaxCubemap",
-          "Component": 3,
-          "Operation": "",
-          "Constant": 0
-        }
-      ],
-      "Reshaped": false
     },
     {
       "Source": "_ClearCoatMask",
@@ -2312,25 +2271,29 @@
           "Input": "user1",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ClearCoatMask_gba",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ClearCoatMask_gba",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ClearCoatMask_gba",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": true
@@ -2342,25 +2305,29 @@
           "Input": "_DiffRampMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_DiffRampMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_DiffRampMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_DiffRampMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2372,25 +2339,29 @@
           "Input": "_DisturbTex1",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_DisturbTex1",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_DisturbTex1",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_DisturbTex1",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2402,25 +2373,29 @@
           "Input": "emissive",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "emissive",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "emissive",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "user2",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": true
@@ -2432,25 +2407,29 @@
           "Input": "_EmotionMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_EmotionMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_EmotionMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_EmotionMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -2462,25 +2441,29 @@
           "Input": "_FurDirMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_FurDirMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_FurDirMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_FurDirMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2492,25 +2475,29 @@
           "Input": "_FurDyeMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_FurDyeMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_FurDyeMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_FurDyeMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -2522,55 +2509,29 @@
           "Input": "_FurMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_FurMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_FurMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_FurMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
-        }
-      ],
-      "Reshaped": false
-    },
-    {
-      "Source": "_HairBrowMask",
-      "Lanes": [
-        {
-          "Input": "_HairBrowMask",
-          "Component": 0,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_HairBrowMask",
-          "Component": 1,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_HairBrowMask",
-          "Component": 2,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_HairBrowMask",
-          "Component": 3,
-          "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2582,25 +2543,29 @@
           "Input": "_HighlightMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_HighlightMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_HighlightMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_HighlightMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -2612,25 +2577,29 @@
           "Input": "_LineMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_LineMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_LineMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_LineMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -2642,25 +2611,29 @@
           "Input": "_MainTex",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MainTex",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MainTex",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MainTex",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2672,25 +2645,29 @@
           "Input": "_MaskTex",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MaskTex",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MaskTex",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MaskTex",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2702,25 +2679,29 @@
           "Input": "_MatcapTex",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MatcapTex",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MatcapTex",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_MatcapTex",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2732,25 +2713,29 @@
           "Input": "metallic",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "specularlevel",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "ambientOcclusion",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "roughness",
           "Component": 0,
           "Operation": "invert",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": true
@@ -2762,55 +2747,29 @@
           "Input": "_NormalMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_NormalMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_NormalMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_NormalMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
-        }
-      ],
-      "Reshaped": false
-    },
-    {
-      "Source": "_OutlineMask",
-      "Lanes": [
-        {
-          "Input": "_OutlineMask",
-          "Component": 0,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_OutlineMask",
-          "Component": 1,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_OutlineMask",
-          "Component": 2,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_OutlineMask",
-          "Component": 3,
-          "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -2822,58 +2781,32 @@
           "Input": "height",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ParallaxTex_gba",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ParallaxTex_gba",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ParallaxTex_gba",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": true
-    },
-    {
-      "Source": "_PerObjectScreenSpaceShadowmapTexture",
-      "Lanes": [
-        {
-          "Input": "_PerObjectScreenSpaceShadowmapTexture",
-          "Component": 0,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_PerObjectScreenSpaceShadowmapTexture",
-          "Component": 1,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_PerObjectScreenSpaceShadowmapTexture",
-          "Component": 2,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_PerObjectScreenSpaceShadowmapTexture",
-          "Component": 3,
-          "Operation": "",
-          "Constant": 0
-        }
-      ],
-      "Reshaped": false
     },
     {
       "Source": "_RMOSMap",
@@ -2882,58 +2815,32 @@
           "Input": "roughness",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "metallic",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "ambientOcclusion",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "specularlevel",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": true
-    },
-    {
-      "Source": "_RampMap",
-      "Lanes": [
-        {
-          "Input": "_RampMap",
-          "Component": 0,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_RampMap",
-          "Component": 1,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_RampMap",
-          "Component": 2,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_RampMap",
-          "Component": 3,
-          "Operation": "",
-          "Constant": 0
-        }
-      ],
-      "Reshaped": false
     },
     {
       "Source": "_SDFLightmap",
@@ -2942,25 +2849,29 @@
           "Input": "_SDFLightmap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_SDFLightmap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_SDFLightmap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_SDFLightmap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -2972,55 +2883,29 @@
           "Input": "_SDFMask",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_SDFMask",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_SDFMask",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_SDFMask",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
-        }
-      ],
-      "Reshaped": false
-    },
-    {
-      "Source": "_ScreenSpaceShadowMask",
-      "Lanes": [
-        {
-          "Input": "_ScreenSpaceShadowMask",
-          "Component": 0,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_ScreenSpaceShadowMask",
-          "Component": 1,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_ScreenSpaceShadowMask",
-          "Component": 2,
-          "Operation": "",
-          "Constant": 0
-        },
-        {
-          "Input": "_ScreenSpaceShadowMask",
-          "Component": 3,
-          "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -3032,25 +2917,29 @@
           "Input": "_ShadowLutTex",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ShadowLutTex",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ShadowLutTex",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_ShadowLutTex",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -3062,25 +2951,29 @@
           "Input": "_SilkStockingsMask",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_SilkStockingsMask",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_SilkStockingsMask",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_SilkStockingsMask",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -3092,25 +2985,29 @@
           "Input": "_SpecRampMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_SpecRampMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_SpecRampMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_SpecRampMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
@@ -3122,25 +3019,29 @@
           "Input": "normal",
           "Component": 0,
           "Operation": "repack_normal",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.2158605
         },
         {
           "Input": "normal",
           "Component": 1,
           "Operation": "repack_normal",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.2158605
         },
         {
           "Input": "_SplitNormalMap_ba",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.2158605
         },
         {
           "Input": "_SplitNormalMap_ba",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         }
       ],
       "Reshaped": true
@@ -3152,25 +3053,29 @@
           "Input": "_StrokeMap",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_StrokeMap",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_StrokeMap",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         },
         {
           "Input": "_StrokeMap",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0.5
         }
       ],
       "Reshaped": false
@@ -3182,25 +3087,29 @@
           "Input": "_VFXSpecialBlendTex",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_VFXSpecialBlendTex",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_VFXSpecialBlendTex",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         },
         {
           "Input": "_VFXSpecialBlendTex",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 0
         }
       ],
       "Reshaped": false
@@ -3212,25 +3121,29 @@
           "Input": "_VFXSpecialMainTex",
           "Component": 0,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_VFXSpecialMainTex",
           "Component": 1,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_VFXSpecialMainTex",
           "Component": 2,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         },
         {
           "Input": "_VFXSpecialMainTex",
           "Component": 3,
           "Operation": "",
-          "Constant": 0
+          "Constant": 0,
+          "Absent": 1
         }
       ],
       "Reshaped": false
