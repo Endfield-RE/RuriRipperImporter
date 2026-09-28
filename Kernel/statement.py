@@ -180,7 +180,8 @@ class Node:
             "intensity": row["light_intensity"], "range": row["light_range"],
             "angle": row["light_angle"], "inner_angle": row["light_inner_angle"],
             "width": row["light_width"], "height": row["light_height"],
-            "shadows": bool(row["light_shadows"]), "volume": row["light_volume"],
+            "shadows": bool(row["light_shadows"]), "shadow_resolution": int(row["light_shadow_resolution"]),
+            "volume": row["light_volume"],
             "fade": _floats(row["light_fade"], 4).reshape(-1),
             "parameters": _floats(row["light_parameters"], 4)})
         self.camera = (None if row["ortho"] < 0 else {

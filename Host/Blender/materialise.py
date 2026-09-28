@@ -619,6 +619,12 @@ class _Materialisation:
         intensity as stated. The source's lights are points: no radius. What a light scatters
         into a participating medium is scaled by the volume factor it states.
 
+        A stated shadow resolution is the texels the source's shadow map spans across the
+        light's shadow frustum: a spot's cone, each face of a point light's cube (a 90 degree
+        frustum). EEVEE limits a local light's shadow to a texel size one unit from the light,
+        so the limit is ``2 tan(frustum / 2) / texels`` -- the source's own resolution, never
+        finer. Without one EEVEE keeps its own limit.
+
         A cone blends from its inner angle to its outer one; Blender blends over the fraction
         ``spot_blend`` of the cosine span from the outer edge to the axis, so the same span is
         ``(cos inner - cos outer) / (1 - cos outer)``."""
@@ -641,6 +647,9 @@ class _Materialisation:
             cos_inner = np.cos(np.radians(min(stated["inner_angle"], stated["angle"])) * 0.5)
             light.spot_size = outer
             light.spot_blend = float(np.clip((cos_inner - cos_outer) / max(1.0 - cos_outer, 1e-6), 0.0, 1.0))
+        if stated["shadow_resolution"] > 0 and kind in ("POINT", "SPOT"):
+            frustum = light.spot_size if kind == "SPOT" else np.pi * 0.5
+            light.shadow_maximum_resolution = float(2.0 * np.tan(frustum * 0.5) / stated["shadow_resolution"])
         if kind == "AREA":
             light.size = stated["width"]
             light.size_y = stated["height"]
