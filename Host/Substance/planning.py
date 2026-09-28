@@ -110,10 +110,11 @@ class TextureJob:
 
 
 class MaterialPlan:
-    """What one Texture Set becomes. ``channels`` states how every channel a job fills is stored."""
+    """What one Texture Set becomes. ``channels`` states how every channel a job fills is stored;
+    ``mesh_maps`` names the baked mesh map usage every mesh map job fills."""
 
     __slots__ = ("name", "key", "shaded", "part", "part_label", "uniforms", "channel_jobs",
-                 "param_jobs", "channels", "warnings")
+                 "param_jobs", "mesh_map_jobs", "channels", "mesh_maps", "warnings")
 
     def __init__(self, name, key, shaded):
         self.name = name
@@ -124,7 +125,9 @@ class MaterialPlan:
         self.uniforms = {}
         self.channel_jobs = []
         self.param_jobs = []
+        self.mesh_map_jobs = []
         self.channels = {}
+        self.mesh_maps = {}
         self.warnings = []
 
 
@@ -201,15 +204,21 @@ def _manifest_plan(manifest, part, name, key, stated, texture_exists):
     for entry in manifest.get("inputs", []):
         input_id = entry.get("Id", "")
         raw = entry.get("Kind", "RawTexture") == "RawTexture"
+        mesh_map = entry.get("MeshMap", "")
         for source in entry.get("Sources", []):
             prop = source.get("Source", "")
             if prop not in bound:
                 continue
             job = TextureJob(bound[prop], _op_for(source.get("Operation", ""),
                                                   source.get("Channels", "rgba")),
-                             "param" if raw else "channel", input_id, prop)
-            (plan.param_jobs if raw else plan.channel_jobs).append(job)
-            if not raw:
+                             "param" if raw else "mesh_map" if mesh_map else "channel", input_id, prop)
+            if raw:
+                plan.param_jobs.append(job)
+            elif mesh_map:
+                plan.mesh_map_jobs.append(job)
+                plan.mesh_maps[input_id] = mesh_map
+            else:
+                plan.channel_jobs.append(job)
                 plan.channels[input_id] = ChannelSpec(
                     entry.get("Format", ""), entry.get("Encoding") == "Color",
                     entry.get("Semantic", "") if entry.get("Kind") == "OverflowChannel" else "")
@@ -235,6 +244,9 @@ def _manifest_plan(manifest, part, name, key, stated, texture_exists):
     for prop, st in stated.texture_st.items():
         if prop + "_ST" in declared:
             plan.uniforms[prop + "_ST"] = list(st)
+    # This application's own library parameters its native functions must evaluate at for the source's
+    # meaning (the baked occlusion at full strength): the generator states them, the panel keeps them live.
+    plan.uniforms.update(panel.get("hostParameters") or {})
 
     plan.part, plan.part_label = part.get("value", 0), part.get("name", "")
     variant = panel.get("variantUniform", "")

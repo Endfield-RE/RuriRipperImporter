@@ -43,7 +43,7 @@ class _Job:
     """Everything one import needs, from the click to the wiring."""
 
     __slots__ = ("name", "statement", "options", "cache_dir", "glb_path",
-                 "plans", "channels", "parameters", "report", "built")
+                 "plans", "channels", "parameters", "mesh_maps", "report", "built")
 
     def __init__(self, name, statement, options):
         self.name = name
@@ -54,6 +54,7 @@ class _Job:
         self.plans = {}
         self.channels = {}
         self.parameters = {}
+        self.mesh_maps = {}
         self.report = []
         self.built = kernel_statement.Built()
 
@@ -202,7 +203,8 @@ def _plan(job):
 
 
 def _bake(job):
-    """Split every planned source texture into this application's channels.
+    """Split every planned source texture into this application's channels, shader parameters and
+    baked mesh maps.
 
     The split itself is the KERNEL's: one named operation over the decoded
     image, done where the image already is. This side writes what comes back."""
@@ -215,7 +217,8 @@ def _bake(job):
     for name, plan in sorted(job.plans.items()):
         if plan is None:
             continue
-        for kind, jobs in (("channels", plan.channel_jobs), ("params", plan.param_jobs)):
+        for destination, jobs in ((job.channels, plan.channel_jobs), (job.parameters, plan.param_jobs),
+                                  (job.mesh_maps, plan.mesh_map_jobs)):
             done = {}
             for entry in jobs:
                 # One file per texture and operation, whichever materials bind it.
@@ -238,10 +241,7 @@ def _bake(job):
                 else:
                     reused += 1
                 done[entry.target] = path
-            if kind == "channels":
-                job.channels[name] = done
-            else:
-                job.parameters[name] = done
+            destination[name] = done
     job.report.append("textures: {0} written, {1} reused, into {2}".format(
         written, reused, folder))
 
@@ -282,5 +282,5 @@ def _on_ready(_event):
         pass
     if job is None:
         return
-    sp_apply.apply(job.plans, job.channels, job.parameters, job.report, job.options)
+    sp_apply.apply(job.plans, job.channels, job.parameters, job.mesh_maps, job.report, job.options)
 

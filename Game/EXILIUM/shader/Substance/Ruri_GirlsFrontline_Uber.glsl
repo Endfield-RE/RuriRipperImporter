@@ -191,8 +191,6 @@ uniform bool _UseStockingFalloff;
 const uint lightIndex = uint(0);
 //: param custom { "default": [1, 1, 0, 0], "label": "unity_SpecCube0_HDR", "group": "R 引擎态" }
 uniform vec4 unity_SpecCube0_HDR;
-//: param custom { "default": 0, "label": "unity_WorldToObject", "group": "R 引擎态" }
-uniform mat4 unity_WorldToObject;
 //----------------------------------------------------------------------endregion
 
 //----------------------------------------------------------------------region 宿主库
@@ -625,11 +623,11 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 #define _WorldSpaceCameraPos (camera_pos)
 #define unity_LightData (vec4(0.0, 0.0, 1.0, 0.0))
 #define unity_OrthoParams (vec4(0.0, 0.0, 0.0, 0.0))
+#define unity_WorldToObject (UNITY_MATRIX_I_M)
 #define unity_WorldTransformParams (vec4(0.0, 0.0, 0.0, 1.0))
 //----------------------------------------------------------------------endregion
 
-//----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
-// 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
+//----------------------------------------------------------------------region 宿主原生取值(通道/烘焙网格贴图/环境预滤波)
 vec3 ruriSparseColor(SamplerSparse smp, SparseCoord coord, vec3 absent)
 {
     vec4 s = textureSparse(smp, coord);
@@ -642,12 +640,43 @@ float ruriSparseScalar(SamplerSparse smp, SparseCoord coord, float absent)
     return s.r + absent * (1.0 - s.g);
 }
 
-vec3 ruriSparseNormal(SamplerSparse smp, SparseCoord coord, vec3 absent)
+float ruriBakedOcclusion(SparseCoord coord, float absent)
 {
-    vec4 s = textureSparse(smp, coord);
-    return s.a == 0.0 ? absent : normalUnpack(s);
+    return (base_ao_tex.is_set || ao_tex.is_set) ? getAO(coord, true, false) : absent;
 }
 
+vec3 ruriBakedNormal(SparseCoord coord, vec3 absent)
+{
+    return (base_normal_texture.is_set || normal_texture.is_set || height_texture.is_set) ? getTSNormal(coord) : absent;
+}
+
+vec3 ruriPrefilteredEnvironment(vec3 directionWS, float perceptualRoughness)
+{
+    vec3 reflection = normalize(worldToEnvSpace(directionWS));
+    if (perceptualRoughness < 0.01)
+        return envSample(reflection, 0.0);
+    vec3 tangent = normalize(cross(abs(reflection.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), reflection));
+    vec3 bitangent = cross(reflection, tangent);
+    vec3 radiance = vec3(0.0);
+    float weight = 0.0;
+    for (int i = 0; i < nbSamples; ++i)
+    {
+        vec3 halfway = importanceSampleGGX(fibonacci2DDitheredTemporal(i, nbSamples), tangent, bitangent, reflection, perceptualRoughness);
+        vec3 incoming = -reflect(reflection, halfway);
+        float ndl = dot(reflection, incoming);
+        if (ndl > 0.0)
+        {
+            float ndh = max(1e-8, dot(reflection, halfway));
+            radiance += envSample(incoming, computeLOD(incoming, probabilityGGX(ndh, ndh, perceptualRoughness))) * ndl;
+            weight += ndl;
+        }
+    }
+    return weight > 0.0 ? radiance / weight : envSample(reflection, 0.0);
+}
+//----------------------------------------------------------------------endregion
+
+//----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
+// 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
 float4 ruriRead_BaseMap(float2 uv) {
     vec3 ruriInput0 = ruriSparseColor(basecolor_tex, ruriSparseCoord, vec3(1.0, 1.0, 1.0));
     float ruriInput1 = ruriSparseScalar(opacity_tex, ruriSparseCoord, 1.0);
@@ -655,7 +684,7 @@ float4 ruriRead_BaseMap(float2 uv) {
 }
 
 float4 ruriRead_BumpMap(float2 uv) {
-    vec3 ruriInput0 = ruriSparseNormal(normal_texture, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
+    vec3 ruriInput0 = ruriBakedNormal(ruriSparseCoord, vec3(0.0, 0.0, 0.0));
     vec4 ruriInput1 = texture(_BumpMap_ba, uv);
     return float4((ruriInput0.x * 0.5 + 0.5), (ruriInput0.y * 0.5 + 0.5), ruriInput1.x, ruriInput1.y);
 }
@@ -663,12 +692,20 @@ float4 ruriRead_BumpMap(float2 uv) {
 float4 ruriRead_RMOSMap(float2 uv) {
     float ruriInput0 = ruriSparseScalar(roughness_tex, ruriSparseCoord, 0.0);
     float ruriInput1 = ruriSparseScalar(metallic_tex, ruriSparseCoord, 0.0);
-    float ruriInput2 = ruriSparseScalar(ao_tex, ruriSparseCoord, 0.0);
+    float ruriInput2 = ruriBakedOcclusion(ruriSparseCoord, 0.0);
     float ruriInput3 = ruriSparseScalar(specularlevel_tex, ruriSparseCoord, 0.0);
     return float4(ruriInput0, ruriInput1, ruriInput2, ruriInput3);
 }
 
 //----------------------------------------------------------------------endregion
+
+// 环境 cube 是引擎烘的反射探针:第 m 层按 URP 的 <c>MipmapLevelToPerceptualRoughness</c> 预滤波
+// (ImageBasedLighting.hlsl,UNITY_SPECCUBE_LOD_STEPS = 6,共 7 层卷积)。真源按 <c>roughness·6</c> 取层,
+// 读到的就是这一层的预滤波。
+float CubeMipToPerceptualRoughness_GirlsFrontline(float mip)
+{
+    return saturate(1.7 / 1.4 - sqrt(2.89 / 1.96 - (2.8 / 1.96) * saturate(mip / 6.0)));
+}
 
 vec3 UnpackNormalScale(vec4 packedNormal, float bumpScale)
 {
@@ -1049,7 +1086,7 @@ vec3 GirlsFrontline_EnvironmentSpecular(vec3 specularColor, float roughness, flo
         offset = textureLod(_RampMap, ruriUvClamp(_RampMap, float2(environmentBRDF.y * saturate(dot(normalWS, lightSide)), 0.625)), 0.0).x;
     }
     vec3 reflectDirection = reflect(-viewDirectionWS, normalWS);
-    vec4 encodedIrradiance = vec4(0.2158605, 0.2158605, 0.2158605, 0.5);
+    vec4 encodedIrradiance = vec4(ruriPrefilteredEnvironment(reflectDirection, CubeMipToPerceptualRoughness_GirlsFrontline(roughness * 6.0)), 1.0);
     vec3 probeColor = DecodeHDREnvironment(encodedIrradiance, unity_SpecCube0_HDR);
     return probeColor * (specularColor * environmentBRDF.x + offset);
 }

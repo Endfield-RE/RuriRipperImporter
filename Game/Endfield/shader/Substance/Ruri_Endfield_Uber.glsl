@@ -596,8 +596,8 @@ uniform SamplerSparse specularlevel_tex;
 uniform SamplerSparse roughness_tex;
 //: param custom { "default": "", "default_color": [0.5, 0.5, 1.0, 1.0], "label": "法线图", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _NormalMap;
-//: param auto channel_height
-uniform SamplerSparse height_tex;
+//: param auto channel_user3
+uniform SamplerSparse slot_user3_tex;
 //: param custom { "default": "", "default_color": [0.0, 0.0, 0.0, 0.0], "label": "SDF Lightmap", "usage": "texture", "group": "2 贴图" }
 uniform sampler2D _SDFLightmap;
 //: param custom { "default": "", "default_color": [0.0, 0.0, 0.0, 0.0], "label": "RimMask/SDFMask/FlatSHMask", "usage": "texture", "group": "2 贴图" }
@@ -982,8 +982,7 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 #define unity_OrthoParams (vec4(0.0, 0.0, 0.0, 0.0))
 //----------------------------------------------------------------------endregion
 
-//----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
-// 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
+//----------------------------------------------------------------------region 宿主原生取值(通道/烘焙网格贴图/环境预滤波)
 vec3 ruriSparseColor(SamplerSparse smp, SparseCoord coord, vec3 absent)
 {
     vec4 s = textureSparse(smp, coord);
@@ -996,12 +995,43 @@ float ruriSparseScalar(SamplerSparse smp, SparseCoord coord, float absent)
     return s.r + absent * (1.0 - s.g);
 }
 
-vec3 ruriSparseNormal(SamplerSparse smp, SparseCoord coord, vec3 absent)
+float ruriBakedOcclusion(SparseCoord coord, float absent)
 {
-    vec4 s = textureSparse(smp, coord);
-    return s.a == 0.0 ? absent : normalUnpack(s);
+    return (base_ao_tex.is_set || ao_tex.is_set) ? getAO(coord, true, false) : absent;
 }
 
+vec3 ruriBakedNormal(SparseCoord coord, vec3 absent)
+{
+    return (base_normal_texture.is_set || normal_texture.is_set || height_texture.is_set) ? getTSNormal(coord) : absent;
+}
+
+vec3 ruriPrefilteredEnvironment(vec3 directionWS, float perceptualRoughness)
+{
+    vec3 reflection = normalize(worldToEnvSpace(directionWS));
+    if (perceptualRoughness < 0.01)
+        return envSample(reflection, 0.0);
+    vec3 tangent = normalize(cross(abs(reflection.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), reflection));
+    vec3 bitangent = cross(reflection, tangent);
+    vec3 radiance = vec3(0.0);
+    float weight = 0.0;
+    for (int i = 0; i < nbSamples; ++i)
+    {
+        vec3 halfway = importanceSampleGGX(fibonacci2DDitheredTemporal(i, nbSamples), tangent, bitangent, reflection, perceptualRoughness);
+        vec3 incoming = -reflect(reflection, halfway);
+        float ndl = dot(reflection, incoming);
+        if (ndl > 0.0)
+        {
+            float ndh = max(1e-8, dot(reflection, halfway));
+            radiance += envSample(incoming, computeLOD(incoming, probabilityGGX(ndh, ndh, perceptualRoughness))) * ndl;
+            weight += ndl;
+        }
+    }
+    return weight > 0.0 ? radiance / weight : envSample(reflection, 0.0);
+}
+//----------------------------------------------------------------------endregion
+
+//----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
+// 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
 float4 ruriRead_BaseMap(float2 uv) {
     vec3 ruriInput0 = ruriSparseColor(basecolor_tex, ruriSparseCoord, vec3(1.0, 1.0, 1.0));
     float ruriInput1 = ruriSparseScalar(opacity_tex, ruriSparseCoord, 1.0);
@@ -1009,7 +1039,7 @@ float4 ruriRead_BaseMap(float2 uv) {
 }
 
 float4 ruriRead_BumpMap(float2 uv) {
-    vec3 ruriInput0 = ruriSparseNormal(normal_texture, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
+    vec3 ruriInput0 = ruriBakedNormal(ruriSparseCoord, vec3(0.0, 0.0, 0.0));
     vec4 ruriInput1 = texture(_BumpMap_ba, uv);
     return float4((ruriInput0.x * 0.5 + 0.5), (ruriInput0.y * 0.5 + 0.5), ruriInput1.x, ruriInput1.y);
 }
@@ -1021,7 +1051,7 @@ float4 ruriRead_ClearCoatMask(float2 uv) {
 }
 
 float4 ruriRead_EmissionMap(float2 uv) {
-    vec3 ruriInput0 = ruriSparseColor(emissive_tex, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
+    vec3 ruriInput0 = emissive_intensity * ruriSparseColor(emissive_tex, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
     float ruriInput1 = ruriSparseScalar(slot_user2_tex, ruriSparseCoord, 0.0);
     return float4(ruriInput0.x, ruriInput0.y, ruriInput0.z, ruriInput1);
 }
@@ -1029,13 +1059,13 @@ float4 ruriRead_EmissionMap(float2 uv) {
 float4 ruriRead_MetallicGlossMap(float2 uv) {
     float ruriInput0 = ruriSparseScalar(metallic_tex, ruriSparseCoord, 1.0);
     float ruriInput1 = ruriSparseScalar(specularlevel_tex, ruriSparseCoord, 1.0);
-    float ruriInput2 = ruriSparseScalar(ao_tex, ruriSparseCoord, 1.0);
+    float ruriInput2 = ruriBakedOcclusion(ruriSparseCoord, 1.0);
     float ruriInput3 = ruriSparseScalar(roughness_tex, ruriSparseCoord, 0.0);
     return float4(ruriInput0, ruriInput1, ruriInput2, (ruriInput3 * -1.0 + 1.0));
 }
 
 float4 ruriRead_ParallaxTex(float2 uv) {
-    float ruriInput0 = ruriSparseScalar(height_tex, ruriSparseCoord, 1.0);
+    float ruriInput0 = ruriSparseScalar(slot_user3_tex, ruriSparseCoord, 1.0);
     vec4 ruriInput1 = texture(_ParallaxTex_gba, uv);
     return float4(ruriInput0, ruriInput1.x, ruriInput1.y, ruriInput1.z);
 }
@@ -1043,18 +1073,25 @@ float4 ruriRead_ParallaxTex(float2 uv) {
 float4 ruriRead_RMOSMap(float2 uv) {
     float ruriInput0 = ruriSparseScalar(roughness_tex, ruriSparseCoord, 0.0);
     float ruriInput1 = ruriSparseScalar(metallic_tex, ruriSparseCoord, 0.0);
-    float ruriInput2 = ruriSparseScalar(ao_tex, ruriSparseCoord, 0.0);
+    float ruriInput2 = ruriBakedOcclusion(ruriSparseCoord, 0.0);
     float ruriInput3 = ruriSparseScalar(specularlevel_tex, ruriSparseCoord, 0.0);
     return float4(ruriInput0, ruriInput1, ruriInput2, ruriInput3);
 }
 
 float4 ruriRead_SplitNormalMap(float2 uv) {
-    vec3 ruriInput0 = ruriSparseNormal(normal_texture, ruriSparseCoord, vec3(-0.568279, -0.568279, 0.0));
+    vec3 ruriInput0 = ruriBakedNormal(ruriSparseCoord, vec3(-0.568279, -0.568279, 0.0));
     vec4 ruriInput1 = texture(_SplitNormalMap_ba, uv);
     return float4((ruriInput0.x * 0.5 + 0.5), (ruriInput0.y * 0.5 + 0.5), ruriInput1.x, ruriInput1.y);
 }
 
 //----------------------------------------------------------------------endregion
+
+// 角色环境 cube 的 mip 律:IBL 镜面与清漆两处都按 <c>mip = 1.2·log2(r) + 5</c> 取层,
+// 逆过来即每层预滤波的感知粗糙度;负 mip 被硬件夹到第 0 层。
+float CubeMipToPerceptualRoughness_Endfield(float mip)
+{
+    return exp2((max(mip, 0.0) - 5.0) / 1.2);
+}
 
 vec3 UnpackNormalScale(vec4 packedNormal, float bumpScale)
 {
@@ -2216,7 +2253,7 @@ vec3 IBL_SpecularSplitSum_Endfield_Probe(vec3 V, vec3 N, float NdotV_spec, float
 {
     vec3 reflDir = reflect(-V, N);
     float cubeMip = log2(max(roughnessRaw, 0.001)) * 1.2 + 5.0;
-    vec4 cubeEnc = vec4(0.2158605, 0.2158605, 0.2158605, 0.5);
+    vec4 cubeEnc = vec4(ruriPrefilteredEnvironment(reflDir, CubeMipToPerceptualRoughness_Endfield(cubeMip)), 1.0);
     vec3 cubeSample = DecodeHDREnvironment(cubeEnc, unity_SpecCube0_HDR);
     return IBL_SplitSumCombine(cubeSample, NdotV_spec, roughness, specRampEnv, ambIntensity, ambCol);
 }
@@ -2604,7 +2641,7 @@ vec3 IBL_SpecularSplitSum_Endfield(vec3 V, vec3 N, float NdotV_spec, float rough
 {
     vec3 reflDir = reflect(-V, N);
     float cubeMip = log2(max(roughnessRaw, 0.001)) * 1.2 + 5.0;
-    vec3 cubeSample = vec4(0.2158605, 0.2158605, 0.2158605, 0.5).rgb;
+    vec3 cubeSample = vec4(ruriPrefilteredEnvironment(reflDir, CubeMipToPerceptualRoughness_Endfield(cubeMip)), 1.0).rgb;
     return IBL_SplitSumCombine(cubeSample, NdotV_spec, roughness, specRampEnv, ambIntensity, ambCol);
 }
 
@@ -2612,7 +2649,7 @@ vec3 BRDF_ClearCoat_IBL_Burley(vec3 V, vec3 ccN, float ccPercRough, float ccAlph
 {
     vec3 ccReflDir = reflect(-V, ccN);
     float ccCubeMip = log2(max(ccPercRough, 0.001)) * 1.2 + 5.0;
-    vec3 ccCubeSmp = vec4(0.2158605, 0.2158605, 0.2158605, 0.5).rgb;
+    vec3 ccCubeSmp = vec4(ruriPrefilteredEnvironment(ccReflDir, CubeMipToPerceptualRoughness_Endfield(ccCubeMip)), 1.0).rgb;
     float ccNdotV_ibl = saturate(dot(ccN, V));
     float ccDfgX;
     float ccDfgY;
