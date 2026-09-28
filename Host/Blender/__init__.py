@@ -178,7 +178,7 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
 
     def apply_medium(self, context, medium):
         from . import medium as medium_builder
-        return medium_builder.apply(context, medium)
+        return medium_builder.apply(context, medium, bpy.data.objects.get(LEVEL_SUN))
 
     def source_view_position(self, context):
         """Where the document is being looked at from, in the source's world: the scene

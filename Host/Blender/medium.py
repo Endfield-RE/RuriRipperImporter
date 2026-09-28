@@ -15,12 +15,18 @@ of the sky and of itself goes in as volume emission: ``max(dot(L1, (g * ray, 1))
 ambient_scale, 0)`` per channel times the scattering, plus the stated emission. Everything
 is scaled by the near fade-in over the distance travelled past the range's start.
 
-The light it scatters is its own: the source lights its medium with a copy of the main light
--- its own colour, intensity and direction, scaled by the medium's direct scattering -- not
-with the light that shades surfaces, which the statement gives no volume share. So the medium
-gets a sun of its own, with no diffuse, specular or transmission share and light-linked to
-the medium alone: EEVEE's volume pass lights every volume with every light, its surface light
-loops skip a light whose receivers leave the surface out.
+The sun it scatters is the level sun itself. The source lights its medium with the main light
+along the main light's direction, through the main light's shadow maps, but in the colour the
+phase states before decoding it and at the undivided intensity, scaled by the medium's direct
+scattering; the level sun carries the decoded colour at the intensity over pi. A second sun
+would not do: EEVEE tags shadow pages for every sun at every visible pixel and froxel whatever
+its light linking says, and two suns overflow the shadow pool at full resolution, which EEVEE
+answers by dropping shadows. EEVEE's volume lighting is linear in the light's colour and in the
+medium's scattering colour, so the difference is exact to fold: the level sun takes the volume
+share ``I * s * max(k) / E`` (``k`` = stated colour / sun colour per channel, ``E`` its energy),
+the medium's scattering and absorption colours become ``albedo * k / max(k)`` -- their
+extinctions still sum to the density, every factor stays at most one -- and every lamp copy
+takes its colour over ``k / max(k)``, so a lamp scatters exactly what it did before.
 
 A lamp scatters into the medium by the volume factor the statement gave it. The source lights
 its medium with its lamps unshadowed (unless the medium says otherwise) and without the
@@ -48,39 +54,41 @@ from mathutils import Vector
 from . import material_builder
 
 MEDIUM = "Ruri Level Medium"
-MEDIUM_LIGHT = "Ruri Level Medium Light"
 RECEIVERS = "Ruri Level Medium Receivers"
 TWIN_SUFFIX = " (medium)"
 #: On a lamp's copy: the lamp it copies.
 TWIN_OF = "ruri_medium_twin_of"
 #: On a lamp's own light data: the volume share it handed its copy.
 HANDED_SHARE = "ruri_medium_share"
+#: On the level sun's light data: the volume share the level stated for it, before the medium's.
+STATED_SHARE = "ruri_medium_stated_share"
 TWIN_RADIUS = 2.0 / math.sqrt(3.0)
 #: What EEVEE's indirect volume lighting is clamped to: its SH energy limit, zero excluded.
 NO_INDIRECT = 1e-9
 TILE_SIZES = ("1", "2", "4", "8", "16")
 
 
-def apply(context, medium):
+def apply(context, medium, sun):
     """Stand ``medium`` (see :meth:`Kernel.host.SceneGraph.apply_medium`) up in the scene,
-    replacing whatever medium a previous call stood up. Returns the lines to report."""
+    lit by ``sun`` (the level sun object), replacing whatever medium a previous call stood up.
+    Returns the lines to report."""
     scene = context.scene
     withdraw(scene)
-    domain = _domain(scene, medium)
+    tint = _sun_share(sun, medium)
+    domain = _domain(scene, medium, tint)
     receivers = bpy.data.collections.new(RECEIVERS)
     receivers.objects.link(domain)
-    _medium_light(scene, medium, receivers)
-    copies = _lamp_copies(scene, medium, receivers)
+    copies = _lamp_copies(scene, medium, receivers, tint)
     _integration(scene, medium)
     return ["medium {0}: {1:g}-{2:g} m, {3} lamp(s) in it".format(
         medium["label"], medium["range"][0], medium["range"][1], copies)]
 
 
 def withdraw(scene):
-    """Take a stood-up medium back out: its volume, its light, the lamps' copies, and every
-    lamp's volume share back where the statement put it."""
+    """Take a stood-up medium back out: its volume, the lamps' copies, every lamp's volume
+    share back where the statement put it and the level sun's back to what the level stated."""
     for obj in list(bpy.data.objects):
-        if obj.name in (MEDIUM, MEDIUM_LIGHT) or TWIN_OF in obj:
+        if obj.name == MEDIUM or TWIN_OF in obj:
             data = obj.data
             bpy.data.objects.remove(obj, do_unlink=True)
             if data is not None and data.users == 0:
@@ -89,9 +97,10 @@ def withdraw(scene):
                 elif isinstance(data, bpy.types.Mesh):
                     bpy.data.meshes.remove(data)
     for light in bpy.data.lights:
-        if HANDED_SHARE in light:
-            light.volume_factor = float(light[HANDED_SHARE])
-            del light[HANDED_SHARE]
+        for key in (HANDED_SHARE, STATED_SHARE):
+            if key in light:
+                light.volume_factor = float(light[key])
+                del light[key]
     receivers = bpy.data.collections.get(RECEIVERS)
     if receivers is not None:
         bpy.data.collections.remove(receivers)
@@ -101,7 +110,7 @@ def withdraw(scene):
     _ = scene
 
 
-def _domain(scene, medium):
+def _domain(scene, medium, tint):
     """A box around everything in the scene, grown by the medium's range: wherever the view
     stands among the scene, all of the range it integrates is inside."""
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -119,7 +128,7 @@ def _domain(scene, medium):
     vertices = [(x, y, z) for x in (low.x, high.x) for y in (low.y, high.y) for z in (low.z, high.z)]
     faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
     mesh.from_pydata(vertices, [], faces)
-    mesh.materials.append(_material(medium))
+    mesh.materials.append(_material(medium, tint))
     domain = bpy.data.objects.new(MEDIUM, mesh)
     domain.display_type = "BOUNDS"
     domain.hide_select = True
@@ -127,7 +136,7 @@ def _domain(scene, medium):
     return domain
 
 
-def _material(medium):
+def _material(medium, tint):
     material = bpy.data.materials.get(MEDIUM) or bpy.data.materials.new(MEDIUM)
     material.use_nodes = True
     tree = material.node_tree
@@ -156,12 +165,13 @@ def _material(medium):
 
     albedo = tuple(float(component) for component in medium["albedo"])
     anisotropy = float(medium["anisotropy"])
+    tinted = tuple(component * share for component, share in zip(albedo, tint))
     scatter = graph.node("ShaderNodeVolumeScatter")
-    scatter.inputs["Color"].default_value = albedo + (1.0,)
+    scatter.inputs["Color"].default_value = tinted + (1.0,)
     scatter.inputs["Anisotropy"].default_value = anisotropy
     graph.link(extinction, scatter.inputs["Density"])
     absorption = graph.node("ShaderNodeVolumeAbsorption")
-    absorption.inputs["Color"].default_value = albedo + (1.0,)
+    absorption.inputs["Color"].default_value = tinted + (1.0,)
     graph.link(extinction, absorption.inputs["Density"])
 
     incoming = geometry.outputs["Incoming"]
@@ -191,29 +201,33 @@ def _material(medium):
     return material
 
 
-def _medium_light(scene, medium, receivers):
+def _sun_share(sun, medium):
+    """Give the level sun its share of the medium and return the tint the medium's scattering
+    carries per channel (see the module docstring). The stated light has to be the sun's own
+    direction: it is the main light the source scatters, and a direction the level sun does not
+    have means the medium and the environment were read for different phases."""
     stated = medium["light"]
-    data = bpy.data.lights.new(MEDIUM_LIGHT, type="SUN")
-    data.color = tuple(float(component) for component in stated["color"])
-    data.energy = float(stated["intensity"])
-    data.volume_factor = float(stated["scale"])
-    data.diffuse_factor = 0.0
-    data.specular_factor = 0.0
-    data.transmission_factor = 0.0
-    data.use_shadow = True
-    data.angle = 0.0
-    light = bpy.data.objects.new(MEDIUM_LIGHT, data)
+    if sun is None:
+        raise RuntimeError("[medium] the medium scatters the level's main light, and no level sun is stood up")
+    data = sun.data
     basis = material_builder.world_basis()
     toward = Vector(tuple(sum(basis[row][axis] * float(stated["direction"][axis]) for axis in range(3))
-                          for row in range(3)))
-    light.rotation_mode = "QUATERNION"
-    light.rotation_quaternion = toward.normalized().to_track_quat("Z", "Y")
-    light.light_linking.receiver_collection = receivers
-    scene.collection.objects.link(light)
-    return light
+                          for row in range(3))).normalized()
+    facing = (sun.matrix_world.to_3x3() @ Vector((0.0, 0.0, 1.0))).normalized()
+    if toward.dot(facing) < 1.0 - 1e-6:
+        raise ValueError("[medium] the medium's light comes from {0}, the level sun from {1}".format(
+            tuple(round(component, 5) for component in toward), tuple(round(component, 5) for component in facing)))
+    if data.energy <= 0.0 or min(data.color) <= 0.0:
+        raise ValueError("[medium] the level sun ({0}) emits nothing in some channel, so it cannot carry the "
+                         "medium's colour".format(sun.name))
+    ratio = [float(want) / float(have) for want, have in zip(stated["color"], data.color)]
+    peak = max(ratio)
+    data[STATED_SHARE] = data.volume_factor
+    data.volume_factor = float(stated["intensity"]) * float(stated["scale"]) * peak / data.energy
+    return tuple(component / peak for component in ratio)
 
 
-def _lamp_copies(scene, medium, receivers):
+def _lamp_copies(scene, medium, receivers, tint):
     shadowed = bool(medium["punctual_shadows"])
     copies = 0
     for obj in list(scene.objects):
@@ -228,6 +242,10 @@ def _lamp_copies(scene, medium, receivers):
         data.transmission_factor = 0.0
         data.use_shadow = shadowed and obj.data.use_shadow
         data.shadow_soft_size = TWIN_RADIUS
+        untinted = [component / share_of for component, share_of in zip(obj.data.color, tint)]
+        brightest = max(max(untinted), 1.0)
+        data.color = tuple(component / brightest for component in untinted)
+        data.energy = obj.data.energy * brightest
         copy = bpy.data.objects.new(obj.name + TWIN_SUFFIX, data)
         copy.matrix_world = obj.matrix_world.copy()
         copy[TWIN_OF] = obj.name
