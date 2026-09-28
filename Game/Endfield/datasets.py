@@ -80,6 +80,12 @@ DECAL_LISTS = "_DecalLists"
 PROBE_RANGE = "_ReflectionProbeRange"
 PROBE_LISTS = "_ReflectionProbeLists"
 SCENE_REFLECTION_BOXES = "endfield.scene.reflection_boxes"
+SCENE_WATER_WETNESS = "endfield.scene.water_wetness"
+SCENE_WATER_WETNESS_BOXES = "endfield.scene.water_wetness_boxes"
+#: The names the game's scene stack reads its water wetness mask through: the per-object global
+#: holding an object's run of water proxy triangles, and the data table those runs go into.
+WETNESS_RANGE = "_WaterWetnessRange"
+WETNESS_LISTS = "_WaterWetnessLists"
 
 
 def _table(dataset_id, **args):
@@ -351,6 +357,26 @@ def scene_decal_boxes(map_name, rect, states):
     the unit cube onto its box, in the game's own world."""
     min_x, min_z, max_x, max_z = rect
     rows = _rows(SCENE_DECAL_BOXES, map=map_name, minX=min_x, minZ=min_z, maxX=max_x, maxZ=max_z,
+                 sceneState=[str(state) for state in states])
+    return [[float(row["o{0}".format(index)]) for index in range(16)] for row in rows]
+
+
+def scene_water_wetness(map_name, rect, states):
+    """What the game's water wetness pass draws with for one world rect of the map in the given scene
+    states -- every water proxy triangle with its proxy's parameters, the pass's 3D noise and whether it
+    runs, a level-resources payload the host applies as it is."""
+    min_x, min_z, max_x, max_z = rect
+    return cabmap_state.BRIDGE.game_data_blob(
+        SCENE_WATER_WETNESS, map=map_name, minX=min_x, minZ=min_z, maxX=max_x, maxZ=max_z,
+        sceneState=[str(state) for state in states])
+
+
+def scene_water_wetness_boxes(map_name, rect, states):
+    """The same water proxy triangles in the payload's order, in the shape
+    :meth:`Kernel.host.SceneGraph.apply_box_lists` takes: per triangle, the column-major matrix taking
+    the unit cube onto the region its wetness mask can change, in the game's own world."""
+    min_x, min_z, max_x, max_z = rect
+    rows = _rows(SCENE_WATER_WETNESS_BOXES, map=map_name, minX=min_x, minZ=min_z, maxX=max_x, maxZ=max_z,
                  sceneState=[str(state) for state in states])
     return [[float(row["o{0}".format(index)]) for index in range(16)] for row in rows]
 
