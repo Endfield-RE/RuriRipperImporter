@@ -151,7 +151,8 @@ class Node:
 
     __slots__ = ("index", "parent", "name", "path", "kind", "active", "mesh",
                  "skeleton", "materials", "anchor", "position", "rotation", "scale",
-                 "light", "camera", "tag", "shadows", "main_light_shadows", "object_parameters")
+                 "light", "camera", "tag", "shadows", "main_light_shadows", "object_parameters",
+                 "collection")
 
     def __init__(self, row):
         self.index = int(row["node"])
@@ -200,6 +201,9 @@ class Node:
         values = _floats(row["object_parameters"], 4)
         self.object_parameters = {name: tuple(float(component) for component in values[index])
                                   for index, name in enumerate(names)}
+        #: The collection this node is gathered under apart from the rest of the import (the
+        #: pipeline's own draws, by the shader that draws them), or empty for none.
+        self.collection = row["collection"]
 
     @property
     def renders(self):

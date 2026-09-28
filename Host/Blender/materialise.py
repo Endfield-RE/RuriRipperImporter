@@ -319,7 +319,7 @@ class _Materialisation:
             self.carried[node.index] = local
             return
         made = bpy.data.objects.new(node.name, data)
-        self.context.collection.objects.link(made)
+        self._collection_of(node).objects.link(made)
         self._draws_now(made, node)
         if isinstance(data, bpy.types.Mesh):
             self._cast_shadows(made, node)
@@ -368,6 +368,19 @@ class _Materialisation:
         if node.shadows > kernel_statement.SHADOWS_OFF and not node.main_light_shadows:
             shadow_casting.exclude_from_main_light(made)
 
+    def _collection_of(self, node):
+        """Where a node's object goes: the collection the import runs in, or the child of it the
+        statement gathers the node under -- one per name, made on first use and reused by every
+        later import into the same collection."""
+        home = self.context.collection
+        if not node.collection:
+            return home
+        gathered = home.children.get(node.collection)
+        if gathered is None:
+            gathered = bpy.data.collections.new(node.collection)
+            home.children.link(gathered)
+        return gathered
+
     def _object_parameters(self, made, node):
         """What the pipeline binds for the renderer's own draw, where the shading stacks read it: each per-draw
         value as the per-object global of its name, written as the difference from the default the stacks declare
@@ -411,7 +424,7 @@ class _Materialisation:
         if data is None:
             return
         made = bpy.data.objects.new(node.name, data)
-        self.context.collection.objects.link(made)
+        self._collection_of(node).objects.link(made)
         self._draws_now(made, node)
         self._cast_shadows(made, node)
         self._object_parameters(made, node)
