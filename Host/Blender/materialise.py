@@ -119,6 +119,8 @@ class _Materialisation:
         self.aimed = {}
         #: mesh key -> the mesh datablock, so an instanced mesh is built once
         self.meshes = {}
+        #: per-draw values the statement binds that no shading stack reads -> how many objects carried one
+        self.unread_parameters = {}
 
     # -- the run ------------------------------------------------------------
     def run(self):
@@ -129,6 +131,8 @@ class _Materialisation:
             self._build_node(node, roots)
         for entry in self.statement.report:
             self.warnings.append("{0} x{1}: {2}".format(entry.what, entry.count, entry.detail))
+        for name, count in sorted(self.unread_parameters.items()):
+            self.warnings.append("per-draw value no shading stack reads x{0}: {1}".format(count, name))
         self._fit_shadow_pool()
         # Building nothing is an ANSWER, and it is one of two different answers:
         # the selection stated nothing, or it stated transforms and not one of
@@ -319,6 +323,7 @@ class _Materialisation:
         self._draws_now(made, node)
         if isinstance(data, bpy.types.Mesh):
             self._cast_shadows(made, node)
+            self._object_parameters(made, node)
         parent = self.built.get(node.parent)
         if parent is not None:
             made.parent = parent
@@ -363,6 +368,22 @@ class _Materialisation:
         if node.shadows > kernel_statement.SHADOWS_OFF and not node.main_light_shadows:
             shadow_casting.exclude_from_main_light(made)
 
+    def _object_parameters(self, made, node):
+        """What the pipeline binds for the renderer's own draw, where the shading stacks read it: each per-draw
+        value as the per-object global of its name, written as the difference from the default the stacks declare
+        (the encoding every per-object global uses) and not at all where it equals that default. A value no stack
+        reads has nowhere to go and is counted for the report."""
+        for name, value in node.object_parameters.items():
+            base = material_builder.object_attribute_base(name)
+            if base is None:
+                self.unread_parameters[name] = self.unread_parameters.get(name, 0) + 1
+                continue
+            difference = [component - default for component, default in zip(value, base)]
+            if any(difference):
+                made[name] = difference
+            elif name in made:
+                del made[name]
+
     def _needs_empty(self, node):
         """Whether a transform with nothing on it still has to exist: because the
         user asked for every one, or because something under it will be parented
@@ -393,6 +414,7 @@ class _Materialisation:
         self.context.collection.objects.link(made)
         self._draws_now(made, node)
         self._cast_shadows(made, node)
+        self._object_parameters(made, node)
         self.built[node.index] = made
         self.objects.append(made)
         rig, bone_names = self.rigs.get(node.skeleton, (None, {}))

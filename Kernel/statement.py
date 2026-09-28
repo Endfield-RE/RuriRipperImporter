@@ -151,7 +151,7 @@ class Node:
 
     __slots__ = ("index", "parent", "name", "path", "kind", "active", "mesh",
                  "skeleton", "materials", "anchor", "position", "rotation", "scale",
-                 "light", "camera", "tag", "shadows", "main_light_shadows")
+                 "light", "camera", "tag", "shadows", "main_light_shadows", "object_parameters")
 
     def __init__(self, row):
         self.index = int(row["node"])
@@ -193,6 +193,12 @@ class Node:
         #: Whether a casting renderer's shadow falls in the directional light's
         #: cascades; a streamed renderer can cast for local lights only.
         self.main_light_shadows = bool(row["main_light_shadows"])
+        #: What the pipeline binds for this renderer's own draw beyond its materials:
+        #: {name: (x, y, z, w)}, each under the name the shading stacks read it by.
+        names = [entry for entry in row["object_parameter_names"].split(SEPARATOR) if entry]
+        values = _floats(row["object_parameters"], 4)
+        self.object_parameters = {name: tuple(float(component) for component in values[index])
+                                  for index, name in enumerate(names)}
 
     @property
     def renders(self):
