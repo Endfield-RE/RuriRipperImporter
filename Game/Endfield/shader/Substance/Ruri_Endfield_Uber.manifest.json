@@ -78,6 +78,7 @@
       }
     ],
     "keywords": [
+      "DISABLE_DRAW_UNDER_HAIR",
       "_NORMALMAP"
     ],
     "uniforms": [
@@ -3201,6 +3202,8 @@
     "能力 ShadowAttenuation(MainLightRealtimeShadow/1):宿主无兑现 → 缺席值 1.0(Identity)",
     "能力 ScreenSpaceShadowMask(LoadScreenSpaceShadowMask/2):宿主无兑现 → 缺席值 float2(1.0, 1.0)(Identity)",
     "能力 ScreenDepth(SampleSceneDepth/1):宿主无兑现 → 缺席值 0.0(Declared)",
+    "能力 ScreenSurfaceClass(LoadScreenSurfaceClass/1):宿主无兑现 → 缺席值 0.0(Declared)",
+    "能力 MultiplyFrame(WriteMultiplyFrame/2):宿主兑现 = ruriTransparentFrame(factor, coverage)",
     "uniform _BaseMap_ST:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _BlendTex_ST:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _DirectionalShadowParams:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",

@@ -203,8 +203,7 @@ import lib-sparse.glsl
 //----------------------------------------------------------------------endregion
 
 //: state cull_face off
-//: state blend over { "enable": "input._CharaPartID != 4" }
-//: state blend multiply { "enable": "input._CharaPartID == 4" }
+//: state blend over
 
 //: param auto camera_view_matrix
 uniform mat4 uniform_camera_view_matrix;
@@ -614,6 +613,7 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 //----------------------------------------------------------------------endregion
 
 //----------------------------------------------------------------------region 引擎态兑现(配方)
+#define UNITY_MATRIX_I_M (inverse(ruriObjectToWorld()))
 #define UNITY_MATRIX_I_V (inverse(uniform_camera_view_matrix))
 #define UNITY_MATRIX_M (ruriObjectToWorld())
 #define UNITY_MATRIX_V (uniform_camera_view_matrix)
@@ -672,6 +672,14 @@ vec3 ruriPrefilteredEnvironment(vec3 directionWS, float perceptualRoughness)
         }
     }
     return weight > 0.0 ? radiance / weight : envSample(reflection, 0.0);
+}
+
+vec4 ruriTransparentFrame(vec3 factor, float coverage)
+{
+    vec3 clamped = clamp(factor, 0.0, 1.0);
+    float opacity = 1.0 - min(min(clamped.r, clamped.g), clamped.b);
+    vec3 color = opacity > 1e-5 ? (clamped - (1.0 - opacity)) / opacity : vec3(0.0);
+    return vec4(color, opacity);
 }
 //----------------------------------------------------------------------endregion
 
@@ -1195,19 +1203,24 @@ void GirlsFrontline_EyeBlendAdd(inout RuriData ruriData, CharaVaryings input_, i
     outputData.globalIllumination = float4(color, mask.w * _MainColor.w);
 }
 
+vec4 WriteMultiplyFrame(vec3 factor, float coverage) {
+    return ruriTransparentFrame(factor, coverage);
+}
+
 // b16(<c>Blend DstColor Zero</c>):<c>rgb = 1 + _SpecularIntensity · (_MainTex.rgb · _MainColor.rgb - 1)</c>,
-// 也就是把「乘进帧缓冲的因子」直接写出来 —— 这个部位的 <c>[StylePart]</c> 照抄了那行 <c>Blend</c>,
-// over 混合的宿主据此自己做等价分解。
+// 也就是「乘进帧缓冲的因子」;这个部位的 <c>[StylePart]</c> 照抄了那行 <c>Blend</c>,落帧交给宿主。
 void GirlsFrontline_EyeBlendMultiply(inout RuriData ruriData, CharaVaryings input_, inout RuriGBufferData outputData)
 {
     vec4 mask = ruriSampleSrgb(_MainTex, input_.uv);
     vec3 factor = 1.0 + _SpecularIntensity * (mask.xyz * _MainColor.xyz - 1.0);
+    vec4 frame = WriteMultiplyFrame(factor, ruriData.alpha);
+    ruriData.alpha = frame.w;
     outputData.baseColor = mask.xyz;
     outputData.roughness = ruriData.roughness;
     outputData.metallic = ruriData.metallic;
     outputData.specular = ruriData.specular;
     outputData.normalWS = input_.normalWS;
-    outputData.globalIllumination = float4(factor, 1.0);
+    outputData.globalIllumination = float4(frame.xyz, 1.0);
 }
 
 // b3024 第 137-177 行:法线图的 x 取 <c>r·a</c>、y 取 <c>1 - g</c>(绿通道朝下的约定),z 由单位长补出。

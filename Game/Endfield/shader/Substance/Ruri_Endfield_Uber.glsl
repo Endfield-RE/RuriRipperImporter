@@ -111,6 +111,8 @@ vec2 ruriUvClamp(sampler2D t, vec2 uv) {
 //----------------------------------------------------------------------region 面板参数(生成)
 //: param custom { "default": 0, "label": "Endfield Part", "widget": "combobox", "values": { "0 Standard": 0, "1 Face": 1, "2 Eyes": 2, "3 Hair": 3, "4 Fur": 4, "5 Eyebrow": 5, "6 VFX": 6, "7 OverlayShadow": 7, "8 LiquidAg": 8 }, "group": "0 部位" }
 uniform_specialization int _CharaPartID;
+//: param custom { "default": false, "label": "DISABLE_DRAW_UNDER_HAIR", "group": "1 变体开关" }
+uniform_specialization bool DISABLE_DRAW_UNDER_HAIR;
 //: param custom { "default": false, "label": "_NORMALMAP", "group": "1 变体开关" }
 uniform_specialization bool _NORMALMAP;
 const float HALF_MIN = 6.1035156E-05;
@@ -543,8 +545,7 @@ import lib-sparse.glsl
 //----------------------------------------------------------------------endregion
 
 //: state cull_face off
-//: state blend over { "enable": "input._CharaPartID != 7" }
-//: state blend multiply { "enable": "input._CharaPartID == 7" }
+//: state blend over
 
 //: param auto camera_view_matrix
 uniform mat4 uniform_camera_view_matrix;
@@ -1027,6 +1028,14 @@ vec3 ruriPrefilteredEnvironment(vec3 directionWS, float perceptualRoughness)
         }
     }
     return weight > 0.0 ? radiance / weight : envSample(reflection, 0.0);
+}
+
+vec4 ruriTransparentFrame(vec3 factor, float coverage)
+{
+    vec3 clamped = clamp(factor, 0.0, 1.0);
+    float opacity = 1.0 - min(min(clamped.r, clamped.g), clamped.b);
+    vec3 color = opacity > 1e-5 ? (clamped - (1.0 - opacity)) / opacity : vec3(0.0);
+    return vec4(color, opacity);
 }
 //----------------------------------------------------------------------endregion
 
@@ -2503,19 +2512,36 @@ void Endfield_VFX(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuff
     outputData.globalIllumination = float4(finalAlpha * color, outAlpha);
 }
 
+float LoadScreenSurfaceClass(vec2 normalizedScreenSpaceUV) {
+    return 0.0;
+}
+
+vec4 WriteMultiplyFrame(vec3 factor, float coverage) {
+    return ruriTransparentFrame(factor, coverage);
+}
+
+// 真源 OverlayShadow 趟(b10/b11)。覆盖率 = 贴图 alpha × <c>_BaseColor.a</c>;没开 <c>DISABLE_DRAW_UNDER_HAIR</c> 时
+// 「画在头发底下」:预趟把这一像素标成头发(第 3 张目标 alpha == 1)就把覆盖率归零。因子乘进帧缓冲,落帧交给宿主。
 void Endfield_OverlayShadow(inout RuriData ruriData, CharaVaryings input_, inout RuriGBufferData outputData)
 {
+    const float hairSurfaceClass = 1.0;
     vec4 tex = ruriData.baseSample;
     vec3 rgb = lerp(tex.rgb, float3(1, 1, 1), _UseGrayAsAlpha);
     float alpha = lerp(tex.a, tex.r, _UseGrayAsAlpha);
     float shadowAlpha = alpha * _BaseColor.a;
+    if (!(DISABLE_DRAW_UNDER_HAIR))
+    {
+        if (LoadScreenSurfaceClass(ruriData.normalizedScreenSpaceUV) == hairSurfaceClass)
+            shadowAlpha = 0.0;
+    }
     float finalIntensity = shadowAlpha * _BaseColor.a;
     vec3 blended = rgb * _BaseColor.rgb;
     vec3 finalColor = 1.0 + finalIntensity * (blended - 1.0);
-    ruriData.alpha = shadowAlpha;
-    outputData.baseColor = finalColor;
+    vec4 frame = WriteMultiplyFrame(finalColor, shadowAlpha);
+    ruriData.alpha = frame.w;
+    outputData.baseColor = frame.xyz;
     outputData.normalWS = ruriNormalize(input_.normalWS);
-    outputData.globalIllumination = float4(finalColor, shadowAlpha);
+    outputData.globalIllumination = frame;
 }
 
 void SilkStockingsSurface(float wetness, float baseAlpha, vec3 N, vec3 V, float perceptualRoughness, vec2 uv, inout vec3 albedo, inout vec3 shadowColor, out float specularIntensity, out float anisoDirection, out float coverage, out float roughnessOverride)
