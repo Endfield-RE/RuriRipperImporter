@@ -7,6 +7,15 @@ as a volume object, and the material's own share of the integral is the identity
 what the generated stacks fold that query to. A world volume would not do: EEVEE switches
 every sun off under a world volume that absorbs.
 
+The volume object is volume GEOMETRY -- an empty mesh whose node modifier emits one grid of density
+one over the domain, wearing the medium's material -- displayed as bounds. Material Preview draws no
+mesh displayed below solid, so a closed mesh box would drop the whole medium there; EEVEE syncs volume
+geometry whatever its display, and Workbench draws nothing displayed below solid, so the viewport's
+solid mode keeps showing the level instead of a box around it. EEVEE also skips a volume object whose
+material reads none of its grids (as Cycles does), so the grid is the medium's extent: the material
+scales everything by whether the grid's density reaches half, which holds everywhere inside the domain
+(its voxels are cell-centred) and nowhere outside.
+
 The medium's extinction is grey: ``density_scale * sum(density * 2^-max(-127, falloff * (y -
 height)))`` over the source's own height ``y``, one term per stated layer. It scatters its
 albedo times that and absorbs the rest -- a Volume Scatter and a Volume Absorption of one
@@ -66,6 +75,11 @@ TWIN_RADIUS = 2.0 / math.sqrt(3.0)
 #: What EEVEE's indirect volume lighting is clamped to: its SH energy limit, zero excluded.
 NO_INDIRECT = 1e-9
 TILE_SIZES = ("1", "2", "4", "8", "16")
+#: The domain grid's voxels per axis and the density that keeps every one of them active.
+GRID_RESOLUTION = 2
+GRID_DENSITY = 1.0
+#: The grid the domain emits and the medium's material reads as its extent.
+GRID_NAME = "density"
 
 
 def apply(context, medium, sun):
@@ -104,6 +118,9 @@ def withdraw(scene):
     receivers = bpy.data.collections.get(RECEIVERS)
     if receivers is not None:
         bpy.data.collections.remove(receivers)
+    tree = bpy.data.node_groups.get(MEDIUM)
+    if tree is not None and tree.users == 0:
+        bpy.data.node_groups.remove(tree)
     material = bpy.data.materials.get(MEDIUM)
     if material is not None and material.users == 0:
         bpy.data.materials.remove(material)
@@ -124,16 +141,37 @@ def _domain(scene, medium, tint):
         high = Vector([max(c[i] for c in corners) + reach for i in range(3)])
     else:
         low, high = Vector((-reach,) * 3), Vector((reach,) * 3)
-    mesh = bpy.data.meshes.new(MEDIUM)
-    vertices = [(x, y, z) for x in (low.x, high.x) for y in (low.y, high.y) for z in (low.z, high.z)]
-    faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
-    mesh.from_pydata(vertices, [], faces)
-    mesh.materials.append(_material(medium, tint))
-    domain = bpy.data.objects.new(MEDIUM, mesh)
+    domain = bpy.data.objects.new(MEDIUM, bpy.data.meshes.new(MEDIUM))
+    modifier = domain.modifiers.new(MEDIUM, "NODES")
+    modifier.node_group = _grid_tree(low, high, _material(medium, tint))
     domain.display_type = "BOUNDS"
     domain.hide_select = True
     scene.collection.objects.link(domain)
     return domain
+
+
+def _grid_tree(low, high, material):
+    """The node tree that makes the domain volume geometry: one grid from ``low`` to ``high`` at the
+    coarsest resolution, every voxel active (a density off the background) and wearing ``material``."""
+    tree = bpy.data.node_groups.get(MEDIUM)
+    if tree is not None:
+        bpy.data.node_groups.remove(tree)
+    tree = bpy.data.node_groups.new(MEDIUM, "GeometryNodeTree")
+    tree.is_modifier = True
+    tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    cube = tree.nodes.new("GeometryNodeVolumeCube")
+    cube.inputs["Density"].default_value = GRID_DENSITY
+    cube.inputs["Background"].default_value = 0.0
+    cube.inputs["Min"].default_value = tuple(low)
+    cube.inputs["Max"].default_value = tuple(high)
+    for axis in "XYZ":
+        cube.inputs["Resolution " + axis].default_value = GRID_RESOLUTION
+    worn = tree.nodes.new("GeometryNodeSetMaterial")
+    worn.inputs["Material"].default_value = material
+    output = tree.nodes.new("NodeGroupOutput")
+    tree.links.new(cube.outputs["Volume"], worn.inputs["Geometry"])
+    tree.links.new(worn.outputs["Geometry"], output.inputs["Geometry"])
+    return tree
 
 
 def _material(medium, tint):
@@ -161,6 +199,10 @@ def _material(medium, tint):
     travelled = graph.math("MULTIPLY", distance, graph.math(
         "SUBTRACT", 1.0, graph.math("DIVIDE", start, camera.outputs["View Z Depth"])))
     fade = graph.math("MULTIPLY", travelled, float(medium["near_fade"]), clamp=True)
+    extent = graph.node("ShaderNodeAttribute")
+    extent.attribute_type = "GEOMETRY"
+    extent.attribute_name = GRID_NAME
+    fade = graph.math("MULTIPLY", fade, graph.math("GREATER_THAN", extent.outputs["Fac"], GRID_DENSITY * 0.5))
     extinction = graph.math("MULTIPLY", extinction, fade)
 
     albedo = tuple(float(component) for component in medium["albedo"])
