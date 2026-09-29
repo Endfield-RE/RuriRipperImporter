@@ -61,6 +61,7 @@ STORY_LINES = "endfield.story.lines"
 STORY_STAGE = "endfield.story.stage"
 SCENE_ENVIRONMENT = "endfield.scene.environment"
 SCENE_AMBIENT = "endfield.scene.ambient"
+SCENE_ANCHOR = "endfield.scene.anchor"
 SCENE_GLOBALS = "endfield.scene.globals"
 SCENE_IRRADIANCE = "endfield.scene.irradiance"
 SCENE_REFLECTION = "endfield.scene.reflection"
@@ -577,10 +578,18 @@ def placements(map_name, min_x, min_z, max_x, max_z, scene_state_ids, detail_lev
         "no_renderers": _int(count.get("noRenderers", 0)),
         "distinct_assets": _int(count.get("distinctAssets", 0)),
         "seed": str(count.get("seed", "")),
-        "bounds": (tuple(float(count[axis]) for axis in ("minX", "minY", "minZ")),
-                   tuple(float(count[axis]) for axis in ("maxX", "maxY", "maxZ"))) if count else None,
-        "median": tuple(float(count[axis]) for axis in ("medianX", "medianY", "medianZ")) if count else None,
     }
+
+
+def scene_anchor(map_name, min_x, min_z, max_x, max_z, scene_state_ids, detail_level, viewer):
+    """Where the hook resolves one window's camera-centred state (``endfield.scene.anchor``) for a document looked
+    at from ``viewer`` (a point in the source's world, or None): ``((x, y, z), from_view)``."""
+    window = {"map": map_name, "minX": min_x, "minZ": min_z, "maxX": max_x, "maxZ": max_z,
+              "sceneState": list(scene_state_ids), "detailLevel": int(detail_level), "hasViewer": viewer is not None}
+    if viewer is not None:
+        window.update(viewerX=viewer[0], viewerY=viewer[1], viewerZ=viewer[2])
+    row = _rows(SCENE_ANCHOR, **window)[0]
+    return (float(row["x"]), float(row["y"]), float(row["z"])), bool(int(float(row["fromView"])))
 
 
 # ── resolving a name to the rows that hold it ───────────────────────────────

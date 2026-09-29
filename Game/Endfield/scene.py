@@ -329,8 +329,10 @@ def _import(context, arguments):
     if host_port.SceneGraph in host.capabilities:
         # The renderer the stacks are verified under, not whatever the startup scene was saved with.
         host.apply_renderer(context)
-        anchor, where = _anchor(context, host)
-        notes.append("lit from " + where)
+        viewer = host.source_view_position(context)
+        anchor, from_view = datasets.scene_anchor(map_name, *rect, [str(state_id)], detail, viewer)
+        notes.append("lit from the view" if from_view else
+                     "lit from the middle of the level (the view stands outside it; Light From Here re-lights at the view)")
         # The level's own sky and main light go up before anything that samples them is built.
         host.apply_environment(context, datasets.scene_environment(map_name, anchor, states))
     yield command.Mark(0.15)
@@ -340,19 +342,6 @@ def _import(context, arguments):
         notes.extend(_stand_up_lighting(context, host, map_name, rect, anchor, states))
     state.status = "{0}: {1} object(s). {2}".format(
         _label(state), built.imported, "  ".join(notes))
-
-
-def _anchor(context, host):
-    """Where the level's camera-centred state is resolved, the way the game resolves it around its
-    camera: the document's viewer when it stands among the placements, else the middle of them. Its
-    irradiance clipmaps reach 256 m up and down from there at their coarsest, so a viewer left at an
-    empty scene's origin would light a level hundreds of metres up as open sky. Returns the point in
-    the source's world and the words for it."""
-    viewer = host.source_view_position(context)
-    low, high, median = scene_state.EXTENT
-    if viewer is not None and all(low[axis] <= viewer[axis] <= high[axis] for axis in range(3)):
-        return viewer, "the view"
-    return median, "the middle of the level (the view stands outside it; Light From Here re-lights at the view)"
 
 
 def _stand_up_lighting(context, host, map_name, rect, anchor, states):
