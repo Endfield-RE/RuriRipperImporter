@@ -1406,37 +1406,47 @@ class MaterialBuilder:
         return node
 
     def _wire_opacity(self, material, tree, bsdf, roles, base_node):
-        """The blend state is material DATA when the material declares one.
+        """The blend state is material DATA, and a material that states none is
+        opaque -- as it is in every pipeline. Its base map's alpha is opacity only
+        when the material says it blends or clips, or a layer names that channel
+        opacity: an opaque material routinely packs something else there (a mask,
+        a metallic channel, nothing at all), and reading that as opacity is what
+        turned whole floors invisible.
 
-        An opaque material routinely repurposes the base map's alpha, so wiring
-        it as opacity turns whole walls translucent -- honour the declared mode.
         And an alpha TEST is not alpha blending: a material stating a cutoff asks
         for every texel to be all there or not there at all, and handing its soft
-        alpha to a stochastic blend loses most of it to dithering noise."""
-        mode = roles.floats.get("blend_mode")
-        wire = True if mode is None else float(mode) >= 0.5
+        alpha to a stochastic blend loses most of it to dithering noise. The test
+        keeps a texel whose alpha REACHES the cutoff -- the engines' own
+        clip(alpha - cutoff) -- so a zero cutoff keeps every texel. A cutoff a
+        material merely carries while it does not clip is not a test."""
+        transparent = roles.transparent
+        clipped = roles.clipped
         opacity_texture, opacity_channel = roles.with_channel("opacity")
         base = roles.first("base_color")
-        if opacity_texture is not None and opacity_texture is base and opacity_channel == _ALPHA_CHANNEL:
-            wire = True
-        if base_node is not None and wire:
+        named = (opacity_texture is not None and opacity_texture is base
+                 and opacity_channel == _ALPHA_CHANNEL)
+        if base_node is not None and (transparent or clipped or named):
             cutoff = roles.floats.get("alpha_cutoff")
             _enable_alpha_channel(base_node.image)
             socket = base_node.outputs["Alpha"]
-            if cutoff is not None and float(cutoff) > 0.0:
-                test = tree.nodes.new("ShaderNodeMath")
-                test.operation = "GREATER_THAN"
-                test.location = (-100, -150)
-                test.label = "alpha cutoff {0:.3f}".format(float(cutoff))
-                test.inputs[1].default_value = float(cutoff)
-                tree.links.new(socket, test.inputs[0])
-                socket = test.outputs["Value"]
+            if clipped and cutoff is not None:
+                below = tree.nodes.new("ShaderNodeMath")
+                below.operation = "LESS_THAN"
+                below.location = (-250, -150)
+                below.label = "alpha cutoff {0:.3f}".format(float(cutoff))
+                below.inputs[1].default_value = float(cutoff)
+                tree.links.new(socket, below.inputs[0])
+                kept = tree.nodes.new("ShaderNodeMath")
+                kept.operation = "SUBTRACT"
+                kept.location = (-100, -150)
+                kept.inputs[0].default_value = 1.0
+                tree.links.new(below.outputs["Value"], kept.inputs[1])
+                socket = kept.outputs["Value"]
             tree.links.new(socket, bsdf.inputs["Alpha"])
-        if mode is not None:
-            try:
-                material.surface_render_method = "BLENDED" if float(mode) >= 1.5 else "DITHERED"
-            except Exception:
-                pass
+        try:
+            material.surface_render_method = "BLENDED" if transparent else "DITHERED"
+        except Exception:
+            pass
 
     def _wire_normal(self, tree, bsdf, roles, claimed):
         normal = roles.first("normal")

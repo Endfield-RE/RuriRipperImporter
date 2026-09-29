@@ -7,10 +7,11 @@ from JSON layers, a resolution of one material's property tables against it, and
 the writer that records the choices a user makes. Which names mean what is stated
 in the layer files:
 
-* the DEFAULT layer beside this module (``TextureRoles.json``) -- Unity's own
-  standard-shader vocabulary, plus the vocabulary the Ruri converters write when
-  they have read a material's roles off its compiled shader (``_PackedMap`` and
-  its channel floats, and the keyword that says the roles are proven);
+* the DEFAULT layer the reader embeds (``TextureRoles.json`` in its statement
+  kernel) -- Unity's own pipelines' vocabulary, plus the vocabulary the Ruri
+  converters write when they have read a material's roles off its compiled shader
+  (``_PackedMap`` and its channel floats, and the keyword that says the roles are
+  proven);
 * a GAME layer, kept in that game's own folder by the host that ships one;
 * a USER layer, written by the host into its own workspace for a game that ships
   no folder, from the choices its user makes in front of the unmapped names.

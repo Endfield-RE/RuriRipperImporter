@@ -28,6 +28,8 @@
     "_EmissiveColor": "emission"
   },
   "floats": {
-    "_Smoothness": "smoothness"
+    "_Smoothness": "smoothness",
+    "_EnableAlphaTest": "alpha_clip",
+    "_AlphaClipThreshold": "alpha_cutoff"
   }
 }

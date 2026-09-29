@@ -416,6 +416,19 @@ class Roles:
         """Every texture whose CHANNELS carry roles, in table order."""
         return [entry for entry in self.textures if entry.channels]
 
+    @property
+    def transparent(self):
+        """Whether it blends over what is behind it: a blend mode past cutout, or a
+        transparent surface type. Stating neither is opaque, as every pipeline has it."""
+        return (self.floats.get("blend_mode", 0.0) >= 1.5
+                or self.floats.get("surface_type", 0.0) >= 0.5)
+
+    @property
+    def clipped(self):
+        """Whether it alpha-tests: the cutout blend mode, or an alpha clip switched on."""
+        mode = self.floats.get("blend_mode", 0.0)
+        return 0.5 <= mode < 1.5 or self.floats.get("alpha_clip", 0.0) >= 0.5
+
 
 class Material:
     """One material: what it declares, and what those declarations mean.
