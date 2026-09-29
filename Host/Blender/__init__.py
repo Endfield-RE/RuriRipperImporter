@@ -157,6 +157,10 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
         view_layer = (context or bpy.context).view_layer
         view_layer.active_layer_collection = view_layer.layer_collection
 
+    def apply_renderer(self, context):
+        from . import renderer
+        renderer.apply(context.scene)
+
     def apply_environment(self, context, environment):
         from . import ui_stage, world_builder
         ambient = environment["ambient"]

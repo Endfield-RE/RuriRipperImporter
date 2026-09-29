@@ -577,6 +577,9 @@ def placements(map_name, min_x, min_z, max_x, max_z, scene_state_ids, detail_lev
         "no_renderers": _int(count.get("noRenderers", 0)),
         "distinct_assets": _int(count.get("distinctAssets", 0)),
         "seed": str(count.get("seed", "")),
+        "bounds": (tuple(float(count[axis]) for axis in ("minX", "minY", "minZ")),
+                   tuple(float(count[axis]) for axis in ("maxX", "maxY", "maxZ"))) if count else None,
+        "median": tuple(float(count[axis]) for axis in ("medianX", "medianY", "medianZ")) if count else None,
     }
 
 

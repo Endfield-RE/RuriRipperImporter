@@ -90,6 +90,7 @@ SUMMARIES = {}          # map id -> dict, the cached per-map chunk summary
 TABLE = None            # ColumnTable -- the current selection's IMPORTABLE placements, columnar
 MATERIALS_BY_ROW = {}   # {placement row -> tuple of material container paths}
 COUNTS = {}             # the discovery's own counts, see datasets.placements
+EXTENT = None           # (low, high, median) of the kept placements' positions, source world
 SEED_PATHS = []         # list[str] -- the container paths the C# reduction extracted
 RESOLVED_CABS = []      # list[str] -- the seed CABs an import of it needs
 CLOSURE_CABS = 0        # how many CABs those seeds pull in, the real memory proxy
@@ -156,7 +157,7 @@ def discover_placements(map_name, rect, scene_state_id, detail_level):
     SEED_PATHS the container paths an import needs, COUNTS the drop accounting.
     Resets state tied to whatever was discovered before -- a different
     selection's estimate is not meaningful once the placement set has changed."""
-    global TABLE, MATERIALS_BY_ROW, COUNTS, SEED_PATHS, RESOLVED_CABS, CLOSURE_CABS
+    global TABLE, MATERIALS_BY_ROW, COUNTS, EXTENT, SEED_PATHS, RESOLVED_CABS, CLOSURE_CABS
     global CURRENT_MAP, CURRENT_WINDOW, SEED, STATUS
     min_x, min_z, max_x, max_z = rect
     # A scene state filter is a LIST on the wire; the panel picks one at a time,
@@ -172,6 +173,7 @@ def discover_placements(map_name, rect, scene_state_id, detail_level):
     COUNTS = {key: result[key] for key in
               ("total_renderers", "no_transform", "detail_filtered", "stand_in_filtered",
                "no_renderers", "distinct_assets")}
+    EXTENT = (result["bounds"][0], result["bounds"][1], result["median"]) if result["bounds"] else None
     RESOLVED_CABS = []
     CLOSURE_CABS = 0
     CURRENT_MAP = map_name
@@ -232,7 +234,7 @@ def seed():
 
 
 def reset():
-    global SCENES, LANDMARKS, SUMMARIES, TABLE, MATERIALS_BY_ROW, COUNTS, SEED_PATHS
+    global SCENES, LANDMARKS, SUMMARIES, TABLE, MATERIALS_BY_ROW, COUNTS, EXTENT, SEED_PATHS
     global RESOLVED_CABS, CLOSURE_CABS, CURRENT_MAP, CURRENT_WINDOW, SEED, STATUS
     SCENES = {SELF_CONTAINED: [], STREAMING: []}
     LANDMARKS = {}
@@ -241,6 +243,7 @@ def reset():
     TABLE = None
     MATERIALS_BY_ROW = {}
     COUNTS = {}
+    EXTENT = None
     SEED_PATHS = []
     RESOLVED_CABS = []
     CLOSURE_CABS = 0
