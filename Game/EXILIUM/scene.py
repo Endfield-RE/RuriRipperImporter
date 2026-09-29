@@ -128,7 +128,7 @@ def draw(layout, context):
     entry = BOUND.picked(state)
     actions.enabled = entry is not None
     cast_panel.draw_row_verbs(actions, [entry.payload] if entry is not None and entry.payload else [],
-                              STATE, scene=True)
+                              STATE)
 
 
 def register():

@@ -546,21 +546,20 @@ def forget(bound):
 # ---------------------------------------------------------------------------
 # What it looks like
 # ---------------------------------------------------------------------------
-def draw_load(layout, seeds, state_name, text="", scene=False, reset_scene=False):
+def draw_load(layout, seeds, state_name, text="", reset_scene=False):
     """The kernel's Load over these seeds -- the one button anything loads through."""
     from . import browser as app_browser
     load = layout.operator(app_browser.LOAD.id, text=text, icon="IMPORT") if text         else layout.operator(app_browser.LOAD.id, icon="IMPORT")
     load.seeds = loading.seed_lines(seeds)
     load.panel = state_name
-    load.scene = scene
     load.reset_scene = reset_scene
 
 
-def draw_row_verbs(layout, seeds, state_name, scene=False, reset_scene=False):
+def draw_row_verbs(layout, seeds, state_name, reset_scene=False):
     """Load and Reveal for a picked row -- the kernel's two verbs over its seed, drawn the same
     way by every panel that lists loadable rows, cast or scene alike."""
     from . import browser as app_browser
-    draw_load(layout, seeds, state_name, scene=scene, reset_scene=reset_scene)
+    draw_load(layout, seeds, state_name, reset_scene=reset_scene)
     reveal = layout.operator(app_browser.REVEAL.id, icon="FILE_FOLDER")
     reveal.seeds = loading.seed_lines(seeds)
     reveal.panel = state_name

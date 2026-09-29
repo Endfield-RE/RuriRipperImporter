@@ -133,7 +133,7 @@ def draw(layout, context):
     if scene_graph:
         actions.prop(state, "reset_scene")
     cast_panel.draw_row_verbs(actions, [entry.payload] if entry is not None and entry.payload else [],
-                              STATE, scene=True, reset_scene=scene_graph and state.reset_scene)
+                              STATE, reset_scene=scene_graph and state.reset_scene)
 
 
 def register():

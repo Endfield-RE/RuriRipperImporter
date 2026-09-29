@@ -284,7 +284,7 @@ def _discover(context, arguments):
     """Read the selection's placements and price it -- what it resolves to in CABs
     is the number that says whether the import fits in memory."""
     state = state_of(context)
-    options = app_browser.as_options(app_browser.state_of(context), scene=True)
+    options = app_browser.as_options(app_browser.state_of(context))
     rect, map_name = _rect(state), _map_name(state)
     if rect is None or not map_name:
         state.status = "Nothing selected."
@@ -304,7 +304,7 @@ def _import(context, arguments):
     selection has moved on since."""
     state = state_of(context)
     browser = app_browser.state_of(context)
-    options = app_browser.as_options(browser, scene=True)
+    options = app_browser.as_options(browser)
     rect, map_name = _rect(state), _map_name(state)
     if rect is None or not map_name:
         state.status = "Nothing selected."
@@ -505,11 +505,8 @@ def _draw_actions(layout, context, state, enabled):
     options = layout.column(align=True)
     options.enabled = enabled
     options.prop(state, "scene_state_id")
-    # 与浏览器同一份导入选项 —— 场景导入读的也是它。一个场景窗口是几百上千张材质,
-    # 所以第二个记忆值(Game Shaders)画在按 Import 的地方,别让人跑去另一个 tab 找。
+    # 与浏览器同一份导入选项 —— 场景导入读的也是它。
     app_browser.draw_import_options(options, context)
-    if host_port.NodeMaterials in host_port.current().capabilities:
-        options.prop(app_browser.state_of(context), "scene_shaders")
     options.operator(DISCOVER.id, icon="VIEWZOOM")
     _draw_estimate(layout, state)
     tail = layout.column(align=True)

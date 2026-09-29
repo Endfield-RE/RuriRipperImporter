@@ -187,7 +187,7 @@ def _load(context, arguments):
     host = host_port.current()
     if state.reset_scene and host_port.SceneGraph in host.capabilities:
         host.clear_scene(context)
-    options = app_browser.as_options(app_browser.state_of(context), scene=True)
+    options = app_browser.as_options(app_browser.state_of(context))
     stated = yield command.Read(lambda: statement(state, row), 0.4)
     yield command.Mark(0.6)
     lines = host.load_display_stage(context, stated, options)

@@ -77,10 +77,8 @@ SCHEMA = (
 
     Option("game_shaders", BOOL, True, "Game Shaders",
            "Rebuild the game's own shading stack (NPR lighting, SDF face shadows, fur "
-           "shells, outlines) instead of the host's built-in BSDF. On by default for a "
-           "character -- a character is a dozen materials and this is what makes it look "
-           "like itself; a scene window is hundreds, which is why that road remembers its "
-           "own answer",
+           "shells, outlines) instead of the host's built-in BSDF -- for every load, a "
+           "scene window as much as a character",
            requires=host_port.NodeMaterials),
     Option("import_empties", BOOL, False, "Import Empties",
            "Keep every GameObject as an Empty. Off keeps only the empties that hold "

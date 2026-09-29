@@ -965,14 +965,13 @@ def _sync_texture_roles(state):
             row.role, row.channel = chosen[name]
 
 
-def as_options(self, scene=False):
+def as_options(self):
     """Every import option this host honours, plus what the SESSION knows that
     no switch does.
 
     The options are read off the ONE table that declares them, so a key here and
-    the key an importer reads cannot drift apart. ``scene=True`` is the scene
-    window / display stage road: identical but for which of the two remembered
-    Game Shaders answers it takes (see scene_shaders). An option the game in front
+    the key an importer reads cannot drift apart -- and every road reads the same
+    answers, a scene window as much as a character. An option the game in front
     of us does not offer is absent from its panel, so it answers its default here
     whatever an earlier game's panel left stored."""
     game_name = _active_game_name(self)
@@ -984,8 +983,6 @@ def as_options(self, scene=False):
             continue
         value = getattr(self, entry.key)
         values[entry.key] = int(value) if entry.kind == kernel_options.INT else value
-    if scene and "game_shaders" in values:
-        values["game_shaders"] = self.scene_shaders
     # THE game this session is looking at, resolved exactly once here and stamped
     # onto every armature the import builds.
     values["source_game"] = game_name
@@ -1730,7 +1727,7 @@ def _import_selected(context, arguments):
         _announce(context, "An animation needs an existing skeleton -- import without "
                            "resetting so the rig survives.", host_port.ERROR)
         return
-    yield from _load_steps(context, state, things, clips, arguments["reset_scene"], False)
+    yield from _load_steps(context, state, things, clips, arguments["reset_scene"])
 
 
 def _load(context, arguments):
@@ -1747,8 +1744,7 @@ def _load(context, arguments):
     if not seeds:
         _announce(context, "That row states nothing this install can load.", host_port.WARNING)
         return
-    yield from _load_steps(context, state, seeds, (), arguments["reset_scene"], arguments["scene"],
-                           arguments["panel"])
+    yield from _load_steps(context, state, seeds, (), arguments["reset_scene"], arguments["panel"])
 
 
 def _reveal(context, arguments):
@@ -1833,10 +1829,10 @@ def show_rules(context, rules):
     _reapply_and_refresh(context)
 
 
-def _load_steps(context, state, seeds, clips, reset_scene, scene, panel=""):
+def _load_steps(context, state, seeds, clips, reset_scene, panel=""):
     """Read the statement off the main thread, place it, then play the performances."""
     host = host_port.current()
-    options = as_options(state, scene=scene)
+    options = as_options(state)
     if reset_scene and host_port.SceneGraph in host.capabilities:
         host.clear_scene(context)
     stated = None
@@ -2021,8 +2017,6 @@ LOAD = app_command.COMMANDS.define(
         app_state.Field("seeds", app_state.STRING, "",
                         description="What to load: the picked row's payload, one seed per line"),
         app_state.Field("reset_scene", app_state.BOOL, False),
-        app_state.Field("scene", app_state.BOOL, False,
-                        description="Load it as a scene: the scene-side game shaders answer"),
         app_state.Field("panel", app_state.STRING, "",
                         description="The panel state the outcome is written into")))
 

@@ -306,14 +306,6 @@ BROWSER = Schema("Browser", """The cabmap browser's whole state.""", (
     # 导入选项由**唯一一张表**(Kernel/options.py)生成 —— 屏幕上的开关和管线读的
     # 键是同一个字符串,宿主答不出的能力对应的选项直接不存在而不是灰着。
     *_option_fields(),
-    # 这一个不是选项,是 Game Shaders 的**第二个记忆值**:一个角色十几张材质,
-    # 那点代价换来的是它本来的样子,当然默认开;一个场景窗口几百上千张,同样的
-    # 代价就是几秒对几分钟 —— 而地形石头用内置 BSDF 看着并不差。
-    Field("scene_shaders", state.BOOL, False, "Game Shaders",
-          "Rebuild the game's own shading stack instead of the host's built-in BSDF. "
-          "Off by default for scenes -- a scene window is hundreds of materials, and "
-          "geometry/textures are identical either way. Turn it on when you are actually "
-          "rendering this window rather than still deciding what to import"),
     Field("animation_character_name", state.STRING, ""),
     # The seeds the listed clips were discovered from, one per line: what is loaded
     # first when the checked clips have no rig in front of the user to play onto.
