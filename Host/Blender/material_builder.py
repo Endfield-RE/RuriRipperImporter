@@ -530,6 +530,13 @@ def rebuild_plugin_data(purge):
     state = capability_state(bpy.context.scene)
     for material in compiled:
         material[CAPABILITY_STATE_PROPERTY] = state
+    declared = {name for provider in LEVEL_GLOBALS for name in provider()}
+    for scene in bpy.data.scenes:
+        kept = sorted(name for name in scene.keys() if name in declared)
+        if scene.library is None and kept:
+            failures.append("[material] scene {0} keeps a level's globals on itself ({1} of them, e.g. {2}): a level's "
+                            "globals, texel blocks and grading live on the level's world -- import the level "
+                            "again".format(scene.name, len(kept), kept[0]))
     if failures:
         raise RuntimeError("; ".join(failures))
     return dropped, len(compiled)
@@ -743,11 +750,29 @@ def apply_level_resources(scene, values, payloads):
     return written + filled, unclaimed + unread
 
 
+def level_world(scene):
+    """The world a level's shared state lives on: its engine globals, the texel blocks its stacks read
+    (bound under :data:`LEVEL_IMAGES_PROPERTY`) and the grading it states. The stacks read the globals
+    through view-layer attributes, which Blender looks up on the view layer, then the scene, then the
+    scene's world -- so every scene drawn through the level's world reads the same state: the level's own
+    file, and a shot that links the level's objects and world."""
+    if scene.world is None:
+        raise RuntimeError("[material] scene {0} has no world: a level's globals, texel blocks and grading "
+                           "live on the level's world".format(scene.name))
+    return scene.world
+
+
+#: The custom property on a level's world that holds the images its texel blocks were filled into, keyed by
+#: image name: the level's content, so the world is their user and they go wherever the world is linked.
+LEVEL_IMAGES_PROPERTY = "ruri_level_images"
+
+
 def _apply_level_globals(scene, values):
-    """Write one level's engine globals where the stacks read them live.
+    """Write one level's engine globals where the stacks read them live: on the level's world
+    (see :func:`level_world`).
 
     ``values`` is keyed by the engine's own global names, each the level's value in
-    the source's own convention. What lands on the scene is the DIFFERENCE from the
+    the source's own convention. What lands on the world is the DIFFERENCE from the
     stack's declared default, because the graph reads ``property + default`` and an
     unwritten property reads zero.
 
@@ -755,7 +780,7 @@ def _apply_level_globals(scene, values):
     missing ones would silently stay at the recipe default and the picture would be
     quietly wrong. A stack handed none of them is not this level's consumer (another
     game's stack) and is left alone. Two stacks declaring different defaults for one
-    name cannot share a scene property, so that is refused too."""
+    name cannot share a property, so that is refused too."""
     bases = {}
     for provider in LEVEL_GLOBALS:
         declared = provider()
@@ -768,7 +793,7 @@ def _apply_level_globals(scene, values):
             if known != list(base):
                 raise ValueError("[material] level global {0} has two defaults: {1} and {2}".format(
                     name, known, list(base)))
-    written = []
+    rows = {}
     for name, value in values.items():
         base = bases.get(name)
         if base is None:
@@ -776,10 +801,13 @@ def _apply_level_globals(scene, values):
         if len(value) != len(base):
             raise ValueError("[material] level global {0} has {1} components, the stack reads {2}".format(
                 name, len(value), len(base)))
-        scene[name] = [float(component) - component_base for component, component_base in zip(value, base)]
-        written.append(name)
-    scene.update_tag()
-    return written, sorted(name for name in values if name not in bases)
+        rows[name] = [float(component) - component_base for component, component_base in zip(value, base)]
+    if rows:
+        world = level_world(scene)
+        for name, row in rows.items():
+            world[name] = row
+        world.update_tag()
+    return list(rows), sorted(name for name in values if name not in bases)
 
 
 _LEVEL_RESOURCES_MAGIC = 0x52564C52
@@ -1103,6 +1131,8 @@ def _apply_level_images(scene, blocks):
         if layout["kind"] == "slice":
             slices.setdefault(layout["array"], {})[int(layout["index"])] = layout
     filled = []
+    images = []
+    texel_sizes = {}
     for name, (kind, levels) in blocks.items():
         if name in slices:
             if kind != "tiles":
@@ -1114,7 +1144,9 @@ def _apply_level_images(scene, blocks):
             for index, layout in sorted(slices[name].items()):
                 if index >= len(levels):
                     continue
-                _fill_image(volume_image(layout), _tile_pixels(levels[index]))
+                image = volume_image(layout)
+                _fill_image(image, _tile_pixels(levels[index]))
+                images.append(image)
             filled.append(name)
             continue
         layout = layouts.get(name)
@@ -1125,6 +1157,7 @@ def _apply_level_images(scene, blocks):
             raise ValueError("[material] level image {0}: stated as a {1}, read as a {2}".format(
                 name, kind, layout["kind"]))
         image = volume_image(layout)
+        images.append(image)
         if kind == "tiles":
             _write_tiles(image, levels)
             filled.append(name)
@@ -1134,10 +1167,18 @@ def _apply_level_images(scene, blocks):
         base = _texel_size_base(name + "_TexelSize") if layout["kind"] == "texture" and "size" not in layout else None
         if base is not None:
             height, width = pixels.shape[:2]
-            scene[name + "_TexelSize"] = [value - offset for value, offset in
-                                          zip((1.0 / width, 1.0 / height, float(width), float(height)), base)]
+            texel_sizes[name + "_TexelSize"] = [value - offset for value, offset in
+                                                zip((1.0 / width, 1.0 / height, float(width), float(height)), base)]
         filled.append(name)
-    scene.update_tag()
+    if images or texel_sizes:
+        world = level_world(scene)
+        for key, row in texel_sizes.items():
+            world[key] = row
+        held = world.get(LEVEL_IMAGES_PROPERTY)
+        bound = {key: held[key] for key in held.keys() if held[key] is not None} if held is not None else {}
+        bound.update((image.name, image) for image in images)
+        world[LEVEL_IMAGES_PROPERTY] = bound
+        world.update_tag()
     return filled, sorted(name for name in blocks if name not in layouts and name not in slices)
 
 
