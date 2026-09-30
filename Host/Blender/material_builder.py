@@ -24,6 +24,7 @@ import os
 
 import bpy
 
+from . import linked_twins as _linked_twins
 from . import plugin_data as _plugin_data
 from ...Kernel import extensions
 
@@ -449,6 +450,19 @@ def content(block):
     return _plugin_data.content(block)
 
 
+def twinned(material):
+    """Whether this session already draws a linked material through a compiled twin
+    (see :mod:`linked_twins`)."""
+    return _linked_twins.twinned(material)
+
+
+def adopt_twins(pairs):
+    """The door a generated stack hands the twins it compiled from linked materials'
+    records through, as (linked material, twin) pairs: every user draws the twin, and
+    every save keeps the file pointing at the library's material (see :mod:`linked_twins`)."""
+    return _linked_twins.adopt(pairs)
+
+
 def register_material_panel(panel):
     """A stack hands over its INTERFACE and its own read/write paths, not a panel:
     a session holds several stacks, and one panel each would stack N property
@@ -504,6 +518,7 @@ def rebuild_plugin_data(purge):
     together afterwards. Returns ``(dropped, compiled)``."""
     dropped = 0
     if purge:
+        _linked_twins.release()
         dropped = _plugin_data.purge() + sum(drop() for drop in PLUGIN_PURGES)
     compiled = []
     failures = []
