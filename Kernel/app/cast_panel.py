@@ -316,6 +316,7 @@ def _find_animations(context, arguments):
         return {"CANCELLED"}
     rules, said = asked
     state.status = said
+    from . import browser as app_browser
     app_browser.show_rules(context, list(rules))
     return None
 
