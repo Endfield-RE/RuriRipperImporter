@@ -1843,7 +1843,8 @@ def _load_steps(context, state, seeds, clips, reset_scene, panel=""):
     placed = 0
     rig = None
     if stated is not None:
-        built = loading.place(context, stated, options, lines)
+        with stated:
+            built = loading.place(context, stated, options, lines)
         placed = built.imported
         rig = built.rig
         lines.extend(built.warnings)

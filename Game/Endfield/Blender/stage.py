@@ -1118,8 +1118,10 @@ def _hold_curves(cabs, options):
     if not cabs:
         return 0
     held = 0
-    stated = loading.statement(cabs, options).in_basis(kernel_statement.UNITY)
-    for clip in stated.clips(paths=(rig_identity.ANIMATOR_ROOT_PATH,), avatar=""):
+    with loading.statement(cabs, options) as stated:
+        clips = stated.in_basis(kernel_statement.UNITY).clips(
+            paths=(rig_identity.ANIMATOR_ROOT_PATH,), avatar="")
+    for clip in clips:
         curves = _ObjectCurves(clip)
         _CURVES[(clip.archive, None)] = True
         _CURVES.setdefault((clip.archive, clip.name), curves)

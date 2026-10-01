@@ -552,23 +552,6 @@ class RipperBridge:
         # one decoder is ever active, which is what use_session switches.
         self.maps_by_key = {}
         self._decoder_by_key = {}
-        # {clip guid -> (meta_json, payload_bytes)} from the LAST import_cabs
-        # call -- the zero-parse curve fast path (see ClipCurveBlob.cs).
-        self.clip_curves_by_guid = {}
-        # {mesh guid -> (meta_json, payload_bytes)} -- the geometry counterpart
-        # (see MeshRawBlob.cs), same replacement policy per import_cabs call.
-        self.mesh_blobs_by_guid = {}
-        # {root guid -> hosting cab name} for the LAST import_cabs call -- the
-        # per-root CAB attribution (RipperBlenderBridge.BuildRootCabs) that lets
-        # a UNION closure's roots be split back into their sub-closures.
-        self.root_cabs_by_guid = {}
-        # {guid -> exported path (real name + extension)} for the LAST
-        # import_cabs call -- every asset's display identity.
-        self.asset_paths_by_guid = {}
-        self.texture_srgb_by_guid = {}
-        # {seed container path -> exported guid} from the LAST import_reachable
-        # call -- the placement-to-asset join (see ImportReachable).
-        self.seed_asset_guids_by_path = {}
 
     @property
     def decoder_id(self):
@@ -584,7 +567,7 @@ class RipperBridge:
 
     def reinitialize(self, decoder_id, game_root=None, source_options=None):
         """Re-apply a (possibly different) decoder onto this SAME session, preserving
-        self._map/clip_curves_by_guid -- unlike constructing a fresh RipperBridge, this does not
+        self._map -- unlike constructing a fresh RipperBridge, this does not
         drop an already-loaded cabmap. Safe/idempotent on the C# side (RipperBlenderBridge.
         Initialize -> RuriHook.ApplyHooks diffs the desired hook set against the currently
         active one and only enables/disables the delta), so this is cheap even when the decoder
@@ -881,54 +864,18 @@ class RipperBridge:
             self._map, str(dataset_id), _named_args(args),
             bytes(payload or b""), token))
 
-    def release_last_import(self):
-        """Drop what the LAST closure crossing left on this side, and hand the
-        memory back to the operating system.
+    def release_statement(self, **args):
+        """The selection these statement arguments asked about has been placed: the reader
+        lets go of the flattening its tables were cut from, and hands the memory back.
 
-        Every map below holds the previous import's payload and is replaced
-        wholesale by the next one, so at the moment a new crossing starts they are
-        the previous window's geometry and nothing will read them again. Letting
-        _absorb_closure replace them at the END of the new crossing keeps the old
-        window resident right through the peak of the new one -- which is the
-        difference between a second import that fits and one that pages.
-
-        Rebound rather than cleared: a caller still holding a map it was handed
-        (BridgeAssetDatabase keeps the dicts it was built from) must keep seeing
-        what it was given, and what is genuinely still referenced is exactly what
-        should NOT be freed.
-
-        Measured, one 82-asset window re-imported in the same process: the process
-        stood at 5.19 GB after the document was emptied and comes back to 2.74 GB
-        here, of which 1.83 GB is the loaded cabmap and the decoder -- session
-        state, not the window. The collect is the aggressive, compacting one on
-        purpose: a plain GC.Collect() sweeps the same garbage but leaves the heap
-        COMMITTED (3.98 GB against 1.84 GB, measured side by side), and committed
-        memory nothing is using is exactly what a machine runs out of. It is the
-        committed heap rather than live objects that grows across imports -- it was
-        watched over eight crossings of one window and came back down on its own at
-        the fifth, so this hands back a budget the runtime is keeping, not a leak
-        it is holding."""
+        In this order. This side's wrappers over the reader's objects -- the array each
+        texture crossed as -- keep those objects alive until pythonnet's finalizer releases
+        them, and it batches that until two hundred have queued up; released first, the
+        reader's collection right after finds them unreferenced instead of walking a heap
+        whose largest objects are still held by handles nobody wants any more."""
         import gc
 
-        import System
         from Python.Runtime import Finalizer
-        self.clip_curves_by_guid = {}
-        self.mesh_blobs_by_guid = {}
-        self.root_cabs_by_guid = {}
-        self.asset_paths_by_guid = {}
-        self.texture_srgb_by_guid = {}
-        self.clip_guid_by_key = {}
-        self.seed_asset_guids_by_path = {}
-        self.closure_graph = None
-        # In this order. Dropping the references above drops PYTHON's; the .NET
-        # object behind each wrapper is only released when pythonnet's finalizer
-        # runs, and that batches until 200 of them have queued up -- so the sweep
-        # below would walk a heap whose biggest objects are still rooted by handles
-        # nobody wants any more.
         gc.collect()
         Finalizer.Instance.Collect()
-        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = \
-            System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce
-        System.GC.Collect(2, System.GCCollectionMode.Aggressive, True, True)
-        System.GC.WaitForPendingFinalizers()
-        System.GC.Collect(2, System.GCCollectionMode.Aggressive, True, True)
+        self._bridge.ReleaseStatement(self._map, _named_args(args))

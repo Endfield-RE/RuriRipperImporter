@@ -652,13 +652,45 @@ class Statement:
     geometry only never pays for the texture bytes, and a host that draws a
     report never decodes a mesh. The kernel keeps ONE flattening behind these, so
     asking for a second table of the same request costs the read and nothing
-    else."""
+    else.
 
-    __slots__ = ("_arguments", "_cache")
+    That flattening -- the selection's meshes and every one of its images -- is
+    this statement's to let go: :meth:`close` (or leaving a ``with`` block, or the
+    statement being dropped) tells the reader it will not be asked about again.
+    Left to the next load to replace, it stayed resident for as long as the session
+    sat idle after the last one. The same selection in another basis
+    (:meth:`in_basis`) reads the very same flattening, so it holds on to this one
+    and lets go through it rather than on its own."""
 
-    def __init__(self, arguments):
+    __slots__ = ("_arguments", "_cache", "_owner", "_closed")
+
+    def __init__(self, arguments, owner=None):
         self._arguments = arguments
         self._cache = {}
+        self._owner = owner
+        self._closed = False
+
+    def close(self):
+        """Done with this selection: drop what was read here and, unless this is the same
+        selection in another basis, let the reader drop the flattening."""
+        if self._closed:
+            return
+        self._closed = True
+        self._cache = {}
+        if self._owner is None:
+            session.release_statement(**self._arguments)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     @classmethod
     def of(cls, seeds, basis=UNITY, detail=0, inactive=True, shadow_proxies=False,
@@ -807,7 +839,7 @@ class Statement:
             return self
         arguments = dict(self._arguments)
         arguments["basis"] = basis
-        return Statement(arguments)
+        return Statement(arguments, owner=self._owner or self)
 
     # -- what a host asks while it builds -----------------------------------
     def children_of(self, node_index):
