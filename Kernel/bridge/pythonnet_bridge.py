@@ -7,16 +7,14 @@ it ever touches `clr`/.NET objects directly, which is what keeps the bridge one
 implementation rather than one per host.
 
 The bin dir -- the folder that has to contain BOTH Ruri.RipperHook.dll and
-Ruri.RipperHook.CLI.runtimeconfig.json, typically
-``<checkout>/AssetRipper/Source/0Bins/AssetRipper/Release`` -- is the one genuinely
-machine-specific value here. No repo-root-relative derivation, no
-configuration guessing, nothing hardcoded: it is resolved, in order, from
+Ruri.RipperHook.CLI.runtimeconfig.json, typically ``<checkout>/Source/0Bins/Release``
+-- is the one genuinely machine-specific value here. No repo-root-relative
+derivation, no configuration guessing, nothing hardcoded: it is resolved, in
+order, from
 
 1. ``set_bin_dir(path)`` -- what the host pushed in (Blender: its
    AddonPreferences; Painter: its settings file), which is the normal case;
-2. ``set_bin_dir_provider(fn)`` -- a callable, for a host whose preference can
-   change under it and would rather be asked than have to remember to push;
-3. ``$RURI_RIPPERHOOK_BIN`` -- the headless/CLI escape hatch, no UI needed.
+2. ``$RURI_RIPPERHOOK_BIN`` -- the headless/CLI escape hatch, no UI needed.
 """
 
 from __future__ import annotations
@@ -31,7 +29,6 @@ HOLDS_PROCESS_STATE = True
 _runtime_set = False
 _bridge_type = None
 _bin_dir_override = None
-_bin_dir_provider = None
 _bin_dir_hint = ("Set it in the RuriRipper panel, or set the RURI_RIPPERHOOK_BIN "
                  "environment variable.")
 
@@ -53,17 +50,10 @@ def set_texture_formats(extensions):
 
 
 def set_bin_dir(path):
-    """Push the user-configured bin dir in. Takes priority over the provider and
-    over RURI_RIPPERHOOK_BIN; an empty value clears it again."""
+    """Push the user-configured bin dir in. Takes priority over RURI_RIPPERHOOK_BIN;
+    an empty value clears it again."""
     global _bin_dir_override
     _bin_dir_override = (path or "").strip() or None
-
-
-def set_bin_dir_provider(provider):
-    """Register a callable returning the configured bin dir (or None), for a
-    host that would rather be asked than push on every change."""
-    global _bin_dir_provider
-    _bin_dir_provider = provider
 
 
 def set_bin_dir_hint(hint):
@@ -74,16 +64,7 @@ def set_bin_dir_hint(hint):
 
 
 def _configured_bin_dir():
-    if _bin_dir_override:
-        return _bin_dir_override
-    if _bin_dir_provider is not None:
-        try:
-            provided = (_bin_dir_provider() or "").strip()
-        except Exception:
-            provided = ""
-        if provided:
-            return provided
-    return (os.environ.get("RURI_RIPPERHOOK_BIN") or "").strip() or None
+    return _bin_dir_override or (os.environ.get("RURI_RIPPERHOOK_BIN") or "").strip() or None
 
 
 def _dll_dir():
@@ -91,8 +72,7 @@ def _dll_dir():
     if not d:
         raise RuntimeError(
             "No Ruri-RipperHook bin dir configured (the folder containing "
-            "Ruri.RipperHook.dll, e.g. AssetRipper/Source/0Bins/AssetRipper/Release). "
-            + _bin_dir_hint)
+            "Ruri.RipperHook.dll, e.g. <checkout>/Source/0Bins/Release). " + _bin_dir_hint)
     if not os.path.isfile(os.path.join(d, "Ruri.RipperHook.dll")):
         raise RuntimeError(f"Ruri.RipperHook.dll not found in configured bin dir: {d}")
     if not os.path.isfile(os.path.join(d, "Ruri.RipperHook.CLI.runtimeconfig.json")):
@@ -753,7 +733,7 @@ class RipperBridge:
             return []
         found = []
         for seed in seeds:
-            table = self.game_data("core.deps", query=seed, direction="back", depth=0)
+            table = self.game_data("core.deps", query=seed, direction="reverse", depth=0)
             for index in range(len(table)):
                 cab = str(table.cell(index, "cab"))
                 if cab and cab not in found and cab not in seeds:
@@ -859,7 +839,8 @@ class RipperBridge:
         a performance to restate, an image to re-encode. A dataset that needs
         nothing brought gets nothing."""
         import System.Threading
-        token = cancellation if cancellation is not None             else getattr(System.Threading.CancellationToken, "None")
+        token = (cancellation if cancellation is not None
+                 else getattr(System.Threading.CancellationToken, "None"))
         return bytes(self._bridge.GameDataBlob(
             self._map, str(dataset_id), _named_args(args),
             bytes(payload or b""), token))

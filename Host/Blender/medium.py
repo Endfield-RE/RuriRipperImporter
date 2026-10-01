@@ -247,7 +247,9 @@ def _sun_share(sun, medium):
     """Give the level sun its share of the medium and return the tint the medium's scattering
     carries per channel (see the module docstring). The stated light has to be the sun's own
     direction: it is the main light the source scatters, and a direction the level sun does not
-    have means the medium and the environment were read for different phases."""
+    have means the medium and the environment were read for different phases. A medium that
+    states no main light (a level whose main light is off) gives the sun no share and has no
+    colour to fold; only light the medium states and the sun cannot carry is refused."""
     stated = medium["light"]
     if sun is None:
         raise RuntimeError("[medium] the medium scatters the level's main light, and no level sun is stood up")
@@ -259,12 +261,15 @@ def _sun_share(sun, medium):
     if toward.dot(facing) < 1.0 - 1e-6:
         raise ValueError("[medium] the medium's light comes from {0}, the level sun from {1}".format(
             tuple(round(component, 5) for component in toward), tuple(round(component, 5) for component in facing)))
+    data[STATED_SHARE] = data.volume_factor
+    if float(stated["intensity"]) * float(stated["scale"]) == 0.0:
+        data.volume_factor = 0.0
+        return (1.0, 1.0, 1.0)
     if data.energy <= 0.0 or min(data.color) <= 0.0:
         raise ValueError("[medium] the level sun ({0}) emits nothing in some channel, so it cannot carry the "
                          "medium's colour".format(sun.name))
     ratio = [float(want) / float(have) for want, have in zip(stated["color"], data.color)]
     peak = max(ratio)
-    data[STATED_SHARE] = data.volume_factor
     data.volume_factor = float(stated["intensity"]) * float(stated["scale"]) * peak / data.energy
     return tuple(component / peak for component in ratio)
 

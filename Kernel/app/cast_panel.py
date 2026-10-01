@@ -293,8 +293,7 @@ def _read_shaders(context, arguments):
         return {"CANCELLED"}
     found = yield app_command.Read(
         lambda: cabmap_state.BRIDGE.export_shaders(seeds, output), 0.8)
-    state.status = "{0}: {1} shader(s) -> {2}".format(
-        entry.label, 0 if found is None else found.row_count, output)
+    state.status = "{0}: {1} shader(s) -> {2}".format(entry.label, found, output)
 
 
 def _find_animations(context, arguments):
@@ -520,6 +519,10 @@ def opened(bound, state):
         return
     _OPENING[0] = True
     try:
+        # The cursor the fresh read put on its first line was the panel's, not the user's: it
+        # follows the panel's own choice of kind onto that kind's first line, rather than being
+        # kept on a row the kind does not show -- which is nowhere, and greys out every verb.
+        setattr(state, bound.index, -1)
         state.facet = wanted
     finally:
         _OPENING[0] = False
@@ -550,7 +553,7 @@ def forget(bound):
 def draw_load(layout, seeds, state_name, text="", reset_scene=False):
     """The kernel's Load over these seeds -- the one button anything loads through."""
     from . import browser as app_browser
-    load = layout.operator(app_browser.LOAD.id, text=text, icon="IMPORT") if text         else layout.operator(app_browser.LOAD.id, icon="IMPORT")
+    load = layout.operator(app_browser.LOAD.id, text=text or None, icon="IMPORT")
     load.seeds = loading.seed_lines(seeds)
     load.panel = state_name
     load.reset_scene = reset_scene

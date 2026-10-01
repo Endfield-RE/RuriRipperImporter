@@ -816,6 +816,12 @@ _TEXEL_FORMATS = {1: "<f2", 2: "u1", 3: "<f4"}
 _BLOCK_KINDS = {0: "volume", 1: "array", 2: "tiles"}
 
 
+def _level_size(size, mip):
+    """One dimension of a block at one mip, as the writer counts it: never below one texel,
+    except for a block that states none at all -- a table of no records holds none anywhere."""
+    return 0 if size == 0 else max(1, size >> mip)
+
+
 def _level_resources(payload):
     """``(globals, blocks)`` from one level-resources blob: little-endian ``"RLVR",
     version``, then named four-component globals, then named texel blocks -- a kind
@@ -879,8 +885,8 @@ def _level_resources(payload):
             continue
         levels = []
         for mip in range(mips):
-            level_width, level_height = max(1, width >> mip), max(1, height >> mip)
-            level_depth = max(1, depth >> mip) if kind == "volume" else depth
+            level_width, level_height = _level_size(width, mip), _level_size(height, mip)
+            level_depth = _level_size(depth, mip) if kind == "volume" else depth
             total = level_width * level_height * level_depth * channels
             texels = numpy.frombuffer(view, dtype=texel_format, count=total, offset=cursor)
             cursor += texels.nbytes
