@@ -79,6 +79,7 @@
     ],
     "keywords": [
       "DISABLE_DRAW_UNDER_HAIR",
+      "MAIN_LIGHT_CALCULATE_SHADOWS",
       "_NORMALMAP"
     ],
     "uniforms": [

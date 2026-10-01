@@ -50,15 +50,10 @@
       }
     ],
     "keywords": [
+      "MAIN_LIGHT_CALCULATE_SHADOWS",
       "_NORMALMAP"
     ],
     "uniforms": [
-      {
-        "name": "INV_PI",
-        "type": "float",
-        "widget": "Float",
-        "srgb": false
-      },
       {
         "name": "_AdjustShadowBias",
         "type": "bool",
@@ -902,7 +897,6 @@
     "能力 AdditionalLight(GetAdditionalLight/3):宿主无兑现 → 缺席值 ruriZeroLight()(Identity)",
     "能力 AdditionalLightKind(GirlsFrontline_AdditionalLightKind/1):宿主无兑现 → 缺席值 0.0(Identity)",
     "能力 MultiplyFrame(WriteMultiplyFrame/2):宿主兑现 = ruriTransparentFrame(factor, coverage)",
-    "uniform INV_PI:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _BaseMap_ST:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _MainLightLayerMask:uint 引擎位(SP 面板不认 uint、.mat 无 uint 覆写链)→ const 初始化器真值",
     "uniform _MainLightOcclusionProbes:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",

@@ -111,10 +111,11 @@ vec2 ruriUvClamp(sampler2D t, vec2 uv) {
 //----------------------------------------------------------------------region 面板参数(生成)
 //: param custom { "default": 0, "label": "GirlsFrontline Part", "widget": "combobox", "values": { "0 Standard": 0, "1 Face": 1, "2 Eyes": 2, "3 EyeBlendAdd": 3, "4 EyeBlendMultiply": 4 }, "group": "0 部位" }
 uniform_specialization int _CharaPartID;
+//: param custom { "default": false, "label": "MAIN_LIGHT_CALCULATE_SHADOWS", "group": "1 变体开关" }
+uniform_specialization bool MAIN_LIGHT_CALCULATE_SHADOWS;
 //: param custom { "default": false, "label": "_NORMALMAP", "group": "1 变体开关" }
 uniform_specialization bool _NORMALMAP;
-//: param custom { "default": 0.31830987, "label": "INV_PI", "group": "R 引擎态" }
-uniform float INV_PI;
+const float INV_PI = 0.31830987;
 //: param custom { "default": false, "label": "Adjust Shadow Bias", "group": "Stocking" }
 uniform bool _AdjustShadowBias;
 //: param custom { "default": 0, "label": "Anisotropic GGX", "min": -1, "max": 1, "group": "Stocking" }
@@ -855,9 +856,10 @@ void RURI_INIT_COMMON(CharaVaryings input_, out RuriData outRuriData)
 void RURI_INIT_COMMON(SceneVaryings input_, out RuriData outRuriData)
 {
     outRuriData = ruriZeroRuriData();
-    outRuriData.alpha = 1.0;
-    outRuriData.albedo = half3(1.0, 1.0, 1.0);
-    outRuriData.normalTS = float3(0.0, 0.0, 1.0);
+    vec4 albedoAlpha = half4(ruriRead_BaseMap(input_.uv));
+    outRuriData.alpha = albedoAlpha.a;
+    outRuriData.albedo = albedoAlpha.rgb;
+    outRuriData.normalTS = SampleNormal_BumpMap(input_.uv, _BumpScale);
     outRuriData.positionCS = input_.positionCS;
     outRuriData.positionWS = input_.positionWS;
     outRuriData.normalWS = ResolveNormalWS(outRuriData.normalTS, input_.positionWS, input_.normalWS, input_.tangentWS, input_.uv);
@@ -868,7 +870,14 @@ void RURI_INIT_COMMON(SceneVaryings input_, out RuriData outRuriData)
 
 void RURI_SHADOW_COORD(inout RuriData outRuriData)
 {
-    outRuriData.shadowCoord = vec4(0.0);
+    if (!(MAIN_LIGHT_CALCULATE_SHADOWS))
+    {
+        outRuriData.shadowCoord = float4(0.0, 0.0, 0.0, 0.0);
+    }
+    else
+    {
+        outRuriData.shadowCoord = vec4(0.0);
+    }
 }
 
 void InitializeCharaData(CharaVaryings input_, out RuriData outRuriData)

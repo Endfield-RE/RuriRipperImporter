@@ -113,6 +113,8 @@ vec2 ruriUvClamp(sampler2D t, vec2 uv) {
 uniform_specialization int _CharaPartID;
 //: param custom { "default": false, "label": "DISABLE_DRAW_UNDER_HAIR", "group": "1 变体开关" }
 uniform_specialization bool DISABLE_DRAW_UNDER_HAIR;
+//: param custom { "default": false, "label": "MAIN_LIGHT_CALCULATE_SHADOWS", "group": "1 变体开关" }
+uniform_specialization bool MAIN_LIGHT_CALCULATE_SHADOWS;
 //: param custom { "default": false, "label": "_NORMALMAP", "group": "1 变体开关" }
 uniform_specialization bool _NORMALMAP;
 const float HALF_MIN = 6.1035156E-05;
@@ -1242,9 +1244,10 @@ void RURI_INIT_COMMON(CharaVaryings input_, out RuriData outRuriData)
 void RURI_INIT_COMMON(SceneVaryings input_, out RuriData outRuriData)
 {
     outRuriData = ruriZeroRuriData();
-    outRuriData.alpha = 1.0;
-    outRuriData.albedo = half3(1.0, 1.0, 1.0);
-    outRuriData.normalTS = float3(0.0, 0.0, 1.0);
+    vec4 albedoAlpha = half4(ruriRead_BaseMap(input_.uv));
+    outRuriData.alpha = albedoAlpha.a;
+    outRuriData.albedo = albedoAlpha.rgb;
+    outRuriData.normalTS = SampleNormal_BumpMap(input_.uv, _BumpScale);
     outRuriData.positionCS = input_.positionCS;
     outRuriData.positionWS = input_.positionWS;
     outRuriData.normalWS = ResolveNormalWS(outRuriData.normalTS, input_.positionWS, input_.normalWS, input_.tangentWS, input_.uv);
@@ -1255,7 +1258,14 @@ void RURI_INIT_COMMON(SceneVaryings input_, out RuriData outRuriData)
 
 void RURI_SHADOW_COORD(inout RuriData outRuriData)
 {
-    outRuriData.shadowCoord = vec4(0.0);
+    if (!(MAIN_LIGHT_CALCULATE_SHADOWS))
+    {
+        outRuriData.shadowCoord = float4(0.0, 0.0, 0.0, 0.0);
+    }
+    else
+    {
+        outRuriData.shadowCoord = vec4(0.0);
+    }
 }
 
 void InitializeCharaData(CharaVaryings input_, out RuriData outRuriData)
