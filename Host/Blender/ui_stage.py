@@ -45,22 +45,6 @@ WORLD_COLOR = staging.WORLD_COLOR
 _XYZ = {"x": 0, "y": 1, "z": 2}
 
 
-def _vector(value, keys="xyz"):
-    """A {x,y,z}/{r,g,b} dict or a scalar as a list of floats."""
-    if isinstance(value, dict):
-        pick = keys if keys[0] in value else ("rgba" if "r" in value else keys)
-        return [float(value.get(k, 0.0)) for k in pick]
-    return [float(value)]
-
-
-def _scalar(value):
-    if isinstance(value, dict):
-        return float(value.get("x", value.get("r", 0.0)))
-    if isinstance(value, bool):
-        return 1.0 if value else 0.0
-    return float(value)
-
-
 def apply_environment(context, pairs, name="Endfield Sun", exposure_ev=0.0):
     """Build/replace the stage's sun and world from the pairs the game resolved,
     one target at a time. Nothing here knows which field of which asset meant
@@ -123,10 +107,7 @@ def _write_light(obj, target, value, scale):
     Blender's blackbody."""
     data = obj.data
     if target == LIGHT_DIRECTION:
-        if not isinstance(value, dict):
-            return
-        unity = numpy.array([[float(value.get("x", 0.0)), float(value.get("y", 0.0)),
-                              float(value.get("z", 0.0))]], dtype=numpy.float32)
+        unity = numpy.array([value], dtype=numpy.float32)
         converted = coordinate.convert_points(unity)[0]
         direction = coordinate.root_matrix().to_3x3() @ Vector(
             (float(converted[0]), float(converted[1]), float(converted[2])))
@@ -134,31 +115,22 @@ def _write_light(obj, target, value, scale):
             obj.rotation_mode = "QUATERNION"
             obj.rotation_quaternion = direction.to_track_quat("-Z", "Y")
     elif target == LIGHT_ENERGY:
-        data.energy = _scalar(value) * scale
+        data.energy = value * scale
     elif target == LIGHT_ANGLE:
-        data.angle = 2.0 * _scalar(value)
+        data.angle = 2.0 * value
     elif target == LIGHT_COLOR:
-        components = _vector(value, "rgb")
-        if len(components) >= 3:
-            data.color = (components[0], components[1], components[2])
+        data.color = value
     elif target == LIGHT_SHADOWS:
-        data.use_shadow = _scalar(value) > 0.5
+        data.use_shadow = value > 0.5
     elif target == LIGHT_VOLUME:
-        data.volume_factor = _scalar(value)
+        data.volume_factor = value
 
 
 def _world(context, ambient, scale):
-    """The stage's ambient, as the DC term of its own baked sky SH.
-
-    Only the constant term is used: the character shader takes its ambient from
-    the character volume rather than the world, so what the world owes the scene
-    is the backdrop level, and that is sh[0] per channel. Scaled by the same
-    stops as the sun -- an exposure that moved one and not the other would
-    change the balance the asset authored."""
-    if not isinstance(ambient, dict):
-        return None
-    channels = [float(ambient.get("sh[{0:2d}]".format(base), 0.0)) * scale
-                for base in (0, 9, 18)]
+    """The stage's ambient: the DC term of its own baked sky SH per channel, as the game
+    resolved it. Scaled by the same stops as the sun -- an exposure that moved one and not
+    the other would change the balance the asset authored."""
+    channels = [channel * scale for channel in ambient]
     world = context.scene.world
     if world is None:
         world = bpy.data.worlds.new("Endfield UI Stage")
@@ -220,24 +192,19 @@ def apply_character_params(pushed, materials=None):
 
 
 def _write_slot(current, comps, value):
-    """Write one volume value into one CP slot's four components, in place.
-    Returns whether anything was written."""
+    """Write one volume value into one CP slot's four components, in place: a tuple fills
+    the components it names, a number the one component it names. Returns whether
+    anything was written."""
     if comps in ("rgb", "xyzw"):
-        components = _vector(value)
-        if len(components) < 3:
-            return False
-        for index in range(3):
-            current[index] = components[index]
-        if comps == "xyzw" and len(components) >= 4:
-            current[3] = components[3]
+        current[:len(value)] = value
         return True
     if comps == "w":
-        current[3] = _scalar(value)
+        current[3] = value
         return True
     index = _XYZ.get(comps)
     if index is None:
         return False
-    current[index] = _scalar(value)
+    current[index] = value
     return True
 
 

@@ -175,12 +175,8 @@ DIRECTION_BY_SOURCE = dict(DIRECTION_TABLE)
 CURVE_BY_SOURCE = dict(CURVE_TABLE)
 
 
-def _table(dataset_id, texts):
-    return cabmap_state.BRIDGE.game_data(dataset_id, assetText=list(texts))
-
-
-def _rows(dataset_id, texts):
-    table = _table(dataset_id, texts)
+def _rows(dataset_id, cabs):
+    table = cabmap_state.BRIDGE.game_data(dataset_id, cab=list(cabs))
     return [{name: table.cell(index, name) for name in table.names}
             for index in range(len(table))]
 
@@ -255,18 +251,18 @@ def _curves(rows, unknown):
     return found
 
 
-def read(texts):
-    """Everything one prefab states about its secondary motion, as the statement
-    :mod:`Kernel.app.rigging` describes."""
+def read(cabs):
+    """Everything the model prefabs in these archives state about their secondary motion,
+    as the statement :mod:`Kernel.app.rigging` describes."""
     unknown = {}
     reading = {
         "configs": [{"index": _int(row["index"]), "name": row["name"]}
-                    for row in _rows(CONFIGS, texts)],
-        "values": _values(_rows(VALUES, texts), unknown),
-        "curves": _curves(_rows(CURVES, texts), unknown),
+                    for row in _rows(CONFIGS, cabs)],
+        "values": _values(_rows(VALUES, cabs), unknown),
+        "curves": _curves(_rows(CURVES, cabs), unknown),
         "bones": [{"config": _int(row["config"]),
                    "role": ROLES.get(row["role"], row["role"]), "bone": row["bone"]}
-                  for row in _rows(BONES, texts)],
+                  for row in _rows(BONES, cabs)],
         "colliders": [{"index": _int(row["index"]), "bone": row["bone"], "kind": row["kind"],
                        "center": (float(row["centerX"]), float(row["centerY"]), float(row["centerZ"])),
                        "size": (float(row["sizeX"]), float(row["sizeY"]), float(row["sizeZ"])),
@@ -281,14 +277,14 @@ def read(texts):
                        "bone_position": (float(row["boneX"]), float(row["boneY"]), float(row["boneZ"])),
                        "bone_rotation": (float(row["boneRotationX"]), float(row["boneRotationY"]),
                                          float(row["boneRotationZ"]), float(row["boneRotationW"]))}
-                      for row in _rows(COLLIDERS, texts)],
+                      for row in _rows(COLLIDERS, cabs)],
         "config_colliders": [{"config": _int(row["config"]), "collider": _int(row["collider"])}
-                             for row in _rows(CONFIG_COLLIDERS, texts)],
+                             for row in _rows(CONFIG_COLLIDERS, cabs)],
         "attributes": [{"config": _int(row["config"]), "bone": row["bone"],
                         "attribute": ATTRIBUTE_KINDS.get(_int(row["attribute"]),
                                                          rigging.MOVE_ATTRIBUTE),
                         "error": float(row["error"])}
-                       for row in _rows(ATTRIBUTES, texts)],
+                       for row in _rows(ATTRIBUTES, cabs)],
     }
     reading["unknown"] = unknown
     return reading

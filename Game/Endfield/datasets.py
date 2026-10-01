@@ -49,9 +49,8 @@ MORPH_CTRLS = "endfield.morph.ctrls"
 MORPH_BONES = "endfield.morph.bones"
 MORPH_SHADER_PARAMS = "endfield.morph.shaderparams"
 FACE_RETARGET = "endfield.face.retarget"
-UI_CANDIDATES = "endfield.ui.candidates"
-UI_SCHEMA = "endfield.ui.schema"
-UI_BINDINGS = "endfield.ui.bindings"
+UI_STAGES = "endfield.ui.stages"
+UI_STAGE = "endfield.ui.stage"
 STORY_UNITS = "endfield.story.units"
 STORY_CLIPS = "endfield.story.clips"
 STORY_ACTORS = "endfield.story.actors"
@@ -302,8 +301,8 @@ def scene_environment(map_name, anchor, states):
                     "coefficients": [[float(entry[channel]) for entry in sky]
                                      for channel in ("r", "g", "b")]},
         "light": [
-            (staging.LIGHT_DIRECTION, {"x": number("lightX"), "y": number("lightY"), "z": number("lightZ")}),
-            (staging.LIGHT_COLOR, {"r": number("lightR"), "g": number("lightG"), "b": number("lightB")}),
+            (staging.LIGHT_DIRECTION, (number("lightX"), number("lightY"), number("lightZ"))),
+            (staging.LIGHT_COLOR, (number("lightR"), number("lightG"), number("lightB"))),
             (staging.LIGHT_ENERGY, number("lightIntensity")),
             (staging.LIGHT_ANGLE, number("lightRadius")),
             (staging.LIGHT_SHADOWS, number("lightShadows")),
@@ -706,28 +705,16 @@ def morph_shader_params(cabs):
 
 # ── ui display stages ───────────────────────────────────────────────────────
 
-def ui_candidates():
-    """The assets a display stage is made of, and the stage prefab of each folder.
-    Where they live and which prefab IS the stage are the game's own filing."""
-    return _rows(UI_CANDIDATES)
+def ui_stages():
+    """Every display stage the game ships, one row each -- a table a panel draws as it is."""
+    return _table(UI_STAGES)
 
 
-def ui_schema():
-    """{role: [value]} -- what a stage is made of in the game's own class names,
-    and how it names the two halves of one stage."""
-    schema = {}
-    for row in _rows(UI_SCHEMA):
-        schema.setdefault(row["role"], []).append(row["value"])
-    return schema
-
-
-def ui_bindings():
-    """Where a stage's own values land in the host: one row per (source field,
-    host target). ``gate`` is 'override' for a value that only counts when the
-    volume actually overrides it."""
-    return [{"source": row["source"], "target": row["target"], "slot": _int(row["slot"]),
-             "components": row["components"], "gate": row["gate"]}
-            for row in _rows(UI_BINDINGS)]
+def ui_stage(stage):
+    """One display stage, resolved by the hook: one row per value it states. ``kind`` says what the
+    row is -- a light or world value (``env``), a character parameter (``param``) or a seed of the
+    stage's own art (``prefab``) -- and ``components`` how many of x..w it carries."""
+    return _rows(UI_STAGE, stage=stage)
 
 
 # ── npcs and characters ─────────────────────────────────────────────────────
@@ -750,22 +737,5 @@ def npc_parts(template_id):
 def character_models(cabs):
     """{character id: {model, tag, asset}} -- a character's model prefab is not
     derivable from its id, so its own data asset is the only source."""
-    texts = _mono_behaviour_texts(cabs)
-    if not texts:
-        return {}
     return {row["characterId"]: {"model": row["model"], "tag": row["tag"], "asset": row["asset"]}
-            for row in _rows(CHARACTER_MODELS, assetText=texts)}
-
-
-def _mono_behaviour_texts(cabs):
-    """The serialized text of every MonoBehaviour in a set of CABs.
-
-    These two readers parse a data asset's fields out of its text rather than off
-    the typed object, so text IS their input. Producing it needs no game
-    knowledge, which is why it is one published dataset every title shares
-    rather than a bridge method of its own."""
-    cabs = list(cabs)
-    if not cabs or cabmap_state.BRIDGE is None:
-        return []
-    table = cabmap_state.BRIDGE.game_data("core.assets.text", cab=cabs)
-    return [str(table.cell(index, "text")) for index in range(len(table))]
+            for row in _rows(CHARACTER_MODELS, cab=list(cabs))}

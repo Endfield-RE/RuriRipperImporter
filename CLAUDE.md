@@ -56,8 +56,8 @@ py 侧只经 `Kernel.bridge.session` 的四个动词拿**已经算好的结果**
 **为什么**:python 逐资产解析是分钟级、单线程、还要跨 CLR 边界来回搬数据;同一套逻辑在
 C# 侧是秒级且能并行。**顶级性能是硬要求,不是偏好。**
 
-现存欠账(待迁到 hook,**不许照抄**):`Game/Endfield` 的 `ui_scene_state` / `datasets`
-仍用 `Kernel/unity/{unity_yaml,clip_curves,class_registry}` 在 py 里读 Unity 文本资产。
+读 Unity 文本资产的 py 层(`unity_yaml` / `class_registry` / `ui_scene_state`)已删:UI 舞台的发现与
+解析全在 hook 的 `endfield.ui.stages` / `endfield.ui.stage`。py 侧不许再出现任何资产文本解析。
 
 ## 🔴 2. 层界(判据可 grep)
 
