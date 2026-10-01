@@ -360,7 +360,7 @@ def _stand_up_lighting(context, host, map_name, rect, anchor, states):
          datasets.scene_cookies(map_name, states),
          datasets.scene_cloud_shadow(map_name, anchor, states),
          datasets.scene_shadow_ramp(map_name, anchor, states),
-         datasets.scene_water(map_name, anchor, states),
+         datasets.scene_water(map_name, rect, anchor, states),
          datasets.render_pipeline(),
          datasets.scene_decals(map_name, rect, states),
          datasets.scene_water_wetness(map_name, rect, states)])

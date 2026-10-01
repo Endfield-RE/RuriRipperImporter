@@ -24,10 +24,16 @@ of the sky and of itself goes in as volume emission: ``max(dot(L1, (g * ray, 1))
 ambient_scale, 0)`` per channel times the scattering, plus the stated emission. Everything
 is scaled by the near fade-in over the distance travelled past the range's start.
 
-The sun it scatters is the level sun itself. The source lights its medium with the main light
-along the main light's direction, through the main light's shadow maps, but in the colour the
-phase states before decoding it and at the undivided intensity, scaled by the medium's direct
-scattering; the level sun carries the decoded colour at the intensity over pi. A second sun
+The sun it scatters is the level sun itself. The source lights its medium with the main light,
+through the main light's shadow maps, but along the phase's atmosphere direction
+(``lightConfig.rotationAtmosphere``, which a level may point away from the main light's own), in the
+colour the phase states before decoding it and at the undivided intensity, scaled by the medium's
+direct scattering; the level sun carries the decoded colour at the intensity over pi. The direction
+only enters through the scattering's anisotropy: an isotropic medium is lit the same from any
+direction, so it is stood up whatever the two directions are, and a medium that states no main light
+at all needs none. An anisotropic medium lit along a direction the level sun does not have, or
+stating light the sun cannot carry (a channel the sun emits nothing in), is not stood up -- the
+import says so -- since one sun cannot carry two directions or a colour it does not have. A second sun
 would not do: EEVEE tags shadow pages for every sun at every visible pixel and froxel whatever
 its light linking says, and two suns overflow the shadow pool at full resolution, which EEVEE
 answers by dropping shadows. EEVEE's volume lighting is linear in the light's colour and in the
@@ -88,6 +94,11 @@ def apply(context, medium, sun):
     Returns the lines to report."""
     scene = context.scene
     withdraw(scene)
+    if sun is None:
+        raise RuntimeError("[medium] the medium scatters the level's main light, and no level sun is stood up")
+    unbuildable = _unbuildable(sun, medium)
+    if unbuildable is not None:
+        return ["medium {0} not stood up: {1}".format(medium["label"], unbuildable)]
     tint = _sun_share(sun, medium)
     domain = _domain(scene, medium, tint)
     receivers = bpy.data.collections.new(RECEIVERS)
@@ -243,31 +254,41 @@ def _material(medium, tint):
     return material
 
 
-def _sun_share(sun, medium):
-    """Give the level sun its share of the medium and return the tint the medium's scattering
-    carries per channel (see the module docstring). The stated light has to be the sun's own
-    direction: it is the main light the source scatters, and a direction the level sun does not
-    have means the medium and the environment were read for different phases. A medium that
-    states no main light (a level whose main light is off) gives the sun no share and has no
-    colour to fold; only light the medium states and the sun cannot carry is refused."""
+def _unbuildable(sun, medium):
+    """Why the level sun cannot carry this medium's main light, or None when it can (see the module
+    docstring): a medium stating no main light, or scattering it isotropically, asks nothing of the
+    sun's direction; one that states light has to find every channel of it in the sun."""
     stated = medium["light"]
-    if sun is None:
-        raise RuntimeError("[medium] the medium scatters the level's main light, and no level sun is stood up")
+    if float(stated["intensity"]) * float(stated["scale"]) == 0.0:
+        return None
     data = sun.data
+    if data.energy <= 0.0 or min(data.color) <= 0.0:
+        return "the level sun emits nothing in some channel of the light the medium scatters"
+    if float(medium["anisotropy"]) == 0.0:
+        return None
     basis = material_builder.world_basis()
     toward = Vector(tuple(sum(basis[row][axis] * float(stated["direction"][axis]) for axis in range(3))
                           for row in range(3))).normalized()
     facing = (sun.matrix_world.to_3x3() @ Vector((0.0, 0.0, 1.0))).normalized()
     if toward.dot(facing) < 1.0 - 1e-6:
-        raise ValueError("[medium] the medium's light comes from {0}, the level sun from {1}".format(
-            tuple(round(component, 5) for component in toward), tuple(round(component, 5) for component in facing)))
+        return ("it scatters anisotropically (g = {0:g}) along the atmosphere's light {1}, and the level sun "
+                "points along {2}".format(float(medium["anisotropy"]),
+                                          tuple(round(component, 5) for component in toward),
+                                          tuple(round(component, 5) for component in facing)))
+    return None
+
+
+def _sun_share(sun, medium):
+    """Give the level sun its share of the medium and return the tint the medium's scattering
+    carries per channel (see the module docstring); :func:`_unbuildable` has already said the sun
+    can carry it. A medium that states no main light gives the sun no share and has no colour to
+    fold."""
+    stated = medium["light"]
+    data = sun.data
     data[STATED_SHARE] = data.volume_factor
     if float(stated["intensity"]) * float(stated["scale"]) == 0.0:
         data.volume_factor = 0.0
         return (1.0, 1.0, 1.0)
-    if data.energy <= 0.0 or min(data.color) <= 0.0:
-        raise ValueError("[medium] the level sun ({0}) emits nothing in some channel, so it cannot carry the "
-                         "medium's colour".format(sun.name))
     ratio = [float(want) / float(have) for want, have in zip(stated["color"], data.color)]
     peak = max(ratio)
     data.volume_factor = float(stated["intensity"]) * float(stated["scale"]) * peak / data.energy
