@@ -27,7 +27,7 @@ import time
 from .. import host as host_port
 from .. import options as kernel_options
 from . import command as app_command
-from . import filtering, loading, schemas, texturing
+from . import filtering, loading, look, schemas, texturing
 from . import layout as vocabulary
 from . import state as app_state
 from ...Kernel.bridge import bootstrap, pythonnet_bridge, workspace
@@ -318,32 +318,53 @@ def set_source_options(config, options):
     _INSTALL_IDENTITY.pop(host_port.current().absolute_path(config.game_root) if config.game_root else "", None)
 
 
-def _game_tabs(state):
-    """The content tabs of the game the CURRENT TAB's install is -- one install's,
-    not every open tab's. Each install has its own browser tab, so drawing the union
-    would stack two games' Scene/Character tabs into one row."""
+def _draw_look(layout, context):
+    """How the frame is finally shown. What THIS install's game states about it comes first: a
+    game's post-processing objects and the algorithm that grades a frame from them are its own,
+    so the body is the game's. Then this host's own settings over whatever stack built the
+    document (``Kernel.app.look``)."""
+    config = active_config(state_of(context))
+    own = Game.look_of(config.game_name, config.engine_family) if config is not None else None
+    if own is not None:
+        own(layout, context)
+    look.draw(layout, context)
+
+
+#: The one tab every install has beside the browser. It is about the DOCUMENT, so it is
+#: offered whatever the install is, and with no cabmap loaded at all.
+LOOK_TAB = Game.GameTab("look", "Look",
+                        "How the frame is finally shown: this game's own grading, and this "
+                        "application's settings over what its shading stack built",
+                        _draw_look)
+
+
+def _content_tabs(state):
+    """The content tabs beside the browser: the CURRENT TAB's game's own -- one install's,
+    not every open tab's, or two games' Scene/Character tabs would stack into one row --
+    then the document's."""
     config = active_config(state)
-    return Game.tabs_of(config.game_name, config.engine_family) if config is not None else []
+    owned = Game.tabs_of(config.game_name, config.engine_family) if config is not None else []
+    return owned + [LOOK_TAB]
 
 
 def _active_tab(state):
-    """The game tab actually being shown, or None for the browser.
+    """The content tab actually being shown, or None for the browser.
 
     The stored tab only counts while its own game is still the one in front of the
     panel -- pointing a tab at a different install must take its tabs away rather
     than leave the panel drawing a game that is no longer there. Read-only, so a
     draw callback can call it."""
-    for tab in _game_tabs(state):
+    for tab in _content_tabs(state):
         if tab.key == state.active_tab:
             return tab
     return None
 
 
 def _tab_bar(state):
-    """(key, label) for every content tab currently offered: the browser, then the
-    current game's own."""
+    """(key, label) for every content tab currently offered: the browser, the current
+    game's own, then the document's."""
     entries = [(BROWSER_TAB_ID, BROWSER_TAB_LABEL)]
-    entries.extend((tab.key, tab.label) for tab in _game_tabs(state))
+    entries.extend((tab.key, tab.label) for tab in _content_tabs(state))
     return entries
 
 
@@ -1935,8 +1956,7 @@ def _read_shaders(context, arguments):
         return
     found = yield app_command.Read(
         lambda: cabmap_state.BRIDGE.export_shaders(seeds, output), 0.8)
-    _announce(context, "{0} row(s) -> {1} shader(s) in {2}".format(
-        len(seeds), 0 if found is None else found.row_count, output))
+    _announce(context, "{0} row(s) -> {1} shader(s) in {2}".format(len(seeds), found, output))
 
 
 def _read_all_shaders(context, arguments):
@@ -1962,8 +1982,7 @@ def _read_all_shaders(context, arguments):
         return
     found = yield app_command.Read(
         lambda: cabmap_state.BRIDGE.export_all_shaders(output), 0.8)
-    _announce(context, "whole install -> {0} shader(s) in {1}".format(
-        0 if found is None else found.row_count, output))
+    _announce(context, "whole install -> {0} shader(s) in {1}".format(found, output))
 
 
 def _shader_poll(context):
@@ -2310,14 +2329,17 @@ def draw(layout, context):
     app_command.draw_progress(top, state)
 
     layout.separator()
-    gated = layout.column()
-    gated.enabled = state.loaded
-
     active = _active_tab(state)
     active_key = active.key if active is not None else BROWSER_TAB_ID
-    tabs = gated.row(align=True)
+    tabs = layout.row(align=True)
     for key, label in _tab_bar(state):
-        tabs.operator(SELECT_TAB.id, text=label, depress=(key == active_key)).tab = key
+        button = tabs.row(align=True)
+        button.enabled = state.loaded or key == LOOK_TAB.key
+        button.operator(SELECT_TAB.id, text=label, depress=(key == active_key)).tab = key
+
+    if active is LOOK_TAB:
+        active.draw(layout, context)
+        return
 
     # ``enabled = False`` greys a layout out; it does NOT stop the code that fills
     # it from running. Every tab below this line is ABOUT the loaded cabmap and
@@ -2327,6 +2349,7 @@ def draw(layout, context):
         layout.label(text="Build or load a cabmap to browse/import.", icon="LOCKED")
         return
 
+    gated = layout.column()
     if active is not None:
         active.draw(gated, context)
         return

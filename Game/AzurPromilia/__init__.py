@@ -1,12 +1,12 @@
 """AzurPromilia -- everything the add-on has for this game and nothing else.
 
-Three tabs, none of which means anything for another title:
+Two tabs and the head of the Look tab, none of which means anything for another title:
 
 ``Scene``      every scene the install carries, under the folder tree the game files it in, saying
                which of them ship a built scene file at all. (``scene``)
 ``Character``  the cast off the game's own tables, one row per outfit under the character it
                dresses. (``roster``)
-``Display``    the volume sets the render pipeline puts its post chain under, and the colour
+Look           the volume sets the render pipeline puts its post chain under, and the colour
                grading each gives it. (``display``)
 
 Every reading behind them lives upstream in ``Ruri.RipperHook.AzurPromilia``: the configuration
@@ -59,10 +59,10 @@ GAME_MODULE = GameModule(
         GameTab("character", "Character",
                 "The cast off the game's own tables, one row per outfit",
                 ("roster", "draw")),
-        GameTab("display", "Display",
-                "The volume sets the pipeline grades its post chain with",
-                ("display", "draw"), requires=host_port.Compositor),
     ),
+    # The volume sets the pipeline grades its post chain with: this title's own post-processing
+    # objects, read by its own hook.
+    look=("display", "draw"),
     register=_register,
     unregister=_unregister,
 )
