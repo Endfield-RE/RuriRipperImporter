@@ -2,6 +2,7 @@
   "host": "Substance",
   "family": "GirlsFrontline",
   "stack": "ruri_character_uber_girlsfrontline",
+  "identity": "486d3a787a1c1f5d",
   "shader": "Ruri_GirlsFrontline_Uber.glsl",
   "generated": "Ruri.RenderPipelines.Generator — 勿手改;改真源后重跑 codegen",
   "operations": [

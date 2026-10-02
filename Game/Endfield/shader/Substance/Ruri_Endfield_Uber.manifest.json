@@ -2,6 +2,7 @@
   "host": "Substance",
   "family": "Endfield",
   "stack": "ruri_character_uber_endfield",
+  "identity": "1ce8dc0606d93ee7",
   "shader": "Ruri_Endfield_Uber.glsl",
   "generated": "Ruri.RenderPipelines.Generator — 勿手改;改真源后重跑 codegen",
   "operations": [
