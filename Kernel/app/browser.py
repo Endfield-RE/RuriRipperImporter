@@ -1496,10 +1496,10 @@ REPROBE_INSTALL = app_command.COMMANDS.define(
 
 def _load_rows(state):
     """Read the loaded map's rows into the session and, still off the main thread, the
-    rows holding a material or a shader -- what the decompile button's enablement asks
-    on every redraw, and half a second to build on a full map."""
+    rows the decompile button's enablement asks about on every redraw -- gathering them
+    is most of a second on a map of the largest installs."""
     cabmap_state.load_rows(cabmap_state.key_to_dir(state.browsed_dir))
-    cabmap_state.cabs_holding(SHADING_TYPES)
+    cabmap_state.cabs_where(SHADED)
 
 
 def _build_cabmap(context, arguments):
@@ -1890,19 +1890,18 @@ def _load_steps(context, state, seeds, clips, reset_scene, panel=""):
     _redraw()
 
 
-#: What a row has to hold before there is anything to decompile about it. Both engines'
-#: decoders fill a row's type list with the same vocabulary, so this is one test and not
-#: one per engine -- a build whose materials are its own assets and a build whose material
-#: programs live in a shared archive both say "Material" here.
-SHADING_TYPES = ("Material", "Shader")
+#: The row flag the map states for "something this row pulls in is a material" -- what a
+#: decompile has to answer with, since a material names the program it was compiled to. A
+#: prefab or a mesh holds no material of its own and still reaches every one it is drawn
+#: with; the map walks that once per load, on either engine.
+SHADED = "shaded"
 
 
 def _shader_rows(state):
-    """The selected rows a decompile can answer about: the ones that say they hold a
-    material or a shader. Read off what the row itself states it holds, never off its
-    name or its folder."""
-    shading = cabmap_state.cabs_holding(SHADING_TYPES)
-    return [row for row in _selected_target_rows(state) if row["cab"] in shading]
+    """The selected rows a decompile can answer about: the ones whose dependencies reach
+    a material, as the map states it -- never read off a row's name or its folder."""
+    shaded = cabmap_state.cabs_where(SHADED)
+    return [row for row in _selected_target_rows(state) if row["cab"] in shaded]
 
 
 def _shader_ready(context, state):
@@ -1990,16 +1989,17 @@ def _has_target(context):
 
 
 def _has_shading_target(context):
-    """Whether the selection holds a material or a shader -- the only rows a decompile
+    """Whether anything the selection pulls in is a material -- the only rows a decompile
     of the selection can answer about."""
     return _map_ready(context) and not _target_cabs(state_of(context)).isdisjoint(
-        cabmap_state.cabs_holding(SHADING_TYPES))
+        cabmap_state.cabs_where(SHADED))
 
 
 READ_SHADERS = app_command.COMMANDS.define(
     "ruri.cabmap_shaders", "Decompile Shaders", _read_shaders,
-    description=("Write out, as source, every shader the selected row(s) reach -- any row "
-                 "that holds a material or a shader, on either engine"),
+    description=("Write out, as source, every shader the materials the selected row(s) reach "
+                 "were compiled to -- a prefab or a mesh answers for every material it pulls in, "
+                 "on either engine"),
     icon="NODE_MATERIAL", poll=_has_shading_target, steps=True, status_state=STATE,
     failure="Reading these shaders failed")
 

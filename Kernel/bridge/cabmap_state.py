@@ -72,7 +72,7 @@ class GameSession:
 
     __slots__ = ("key", "game", "ROWS", "VISIBLE", "CURRENT_DIR", "CURRENT_SUBFOLDERS",
                  "SELECTED_CABS", "SELECT_ANCHOR",
-                 "_CAB_INDEX", "_HOLDING", "_sort_column", "_sort_dir", "_active_rules")
+                 "_CAB_INDEX", "_FLAGGED", "_sort_column", "_sort_dir", "_active_rules")
 
     def __init__(self, key, game=""):
         self.key = key
@@ -84,7 +84,7 @@ class GameSession:
         self.SELECTED_CABS = set()    # cab keys of every selected row
         self.SELECT_ANCHOR = None     # ROWS index of the last plainly-clicked row (Shift range anchor)
         self._CAB_INDEX = None        # lazily built cab -> row id (see _cab_index)
-        self._HOLDING = {}            # type names -> (the rows it was built from, the cabs holding one)
+        self._FLAGGED = {}            # flag column -> (the rows it was built from, the cabs that set it)
         self._sort_column = "name"
         self._sort_dir = 0            # 0 = unsorted (load order), 1 = ascending, 2 = descending
         self._active_rules = ()       # whatever was last passed to apply_filter()'s `rules` arg
@@ -214,21 +214,20 @@ def rows_of(cabs):
     return [ACTIVE.ROWS.row(index) for index in sorted(index_of[cab] for cab in cabs if cab in index_of)]
 
 
-def cabs_holding(type_names):
-    """Every cab whose row states it holds one of ``type_names``, built once per
-    loaded map -- so asking it about a selection of any size, on every redraw, is
-    one set operation instead of a read of each selected row. Kept with the table
-    it was built from, so a map loaded since (on a worker, while a redraw asks)
-    is never answered from the one before."""
+def cabs_where(column):
+    """Every cab whose row sets the flag ``column`` the map states per row, gathered
+    once per loaded map -- so asking it about a selection of any size, on every
+    redraw, is one set operation instead of a read of each selected row. Kept with
+    the table it was built from, so a map loaded since (on a worker, while a redraw
+    asks) is never answered from the one before."""
     rows = ACTIVE.ROWS
     if not len(rows):
         return frozenset()
-    wanted = frozenset(type_names)
-    built = ACTIVE._HOLDING.get(wanted)
+    built = ACTIVE._FLAGGED.get(column)
     if built is None or built[0] is not rows:
-        built = (rows, frozenset(cab for cab, held in zip(rows.values("cab"), rows.iterate("type_names"))
-                                 if not wanted.isdisjoint(map(str.strip, held.split(",")))))
-        ACTIVE._HOLDING[wanted] = built
+        cabs = rows.values("cab")
+        built = (rows, frozenset(cabs[index] for index in rows.values(column).nonzero()[0]))
+        ACTIVE._FLAGGED[column] = built
     return built[1]
 
 
