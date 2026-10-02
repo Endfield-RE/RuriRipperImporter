@@ -291,17 +291,16 @@ def find_or_insert_fill(stack):
 # Shader resource
 # ---------------------------------------------------------------------------
 def _sync_shader_to_shelves(report):
-    """The bundled shader source is the truth; Painter's shelf import COPIES a
-    .glsl, so editing the bundled file would otherwise never take effect. A
-    content-level sync on every run makes Painter notice the change and
-    recompile (hot reload)."""
-    source_path = shader_path()
-    if not os.path.isfile(source_path):
-        return
-    try:
-        with open(source_path, "rb") as handle:
-            source = handle.read()
-    except OSError:
+    """The bundled shader is the truth; Painter's shelf import COPIES it, so editing
+    the bundled files would otherwise never take effect. A content-level sync on
+    every run makes Painter notice the change and recompile (hot reload).
+
+    The shader and the manifest the generator wrote beside it are one product: the
+    manifest is what anything reading the shelf asks which textures are channels
+    and which generation of the shader this is. A shelf holding this run's shader
+    beside last month's manifest answers both questions wrong, and silently."""
+    product = [shader_path(), shader.manifest_path()]
+    if not all(os.path.isfile(path) for path in product):
         return
     shelves_cls = getattr(substance_painter.resource, "Shelves", None)
     if shelves_cls is None:
@@ -317,17 +316,24 @@ def _sync_shader_to_shelves(report):
             continue
         if not root:
             continue
-        candidate = os.path.join(root, "shaders", shader.name() + ".glsl")
-        if not os.path.isfile(candidate):
+        folder = os.path.join(root, "shaders")
+        if not os.path.isfile(os.path.join(folder, shader.name() + ".glsl")):
             continue
-        try:
-            with open(candidate, "rb") as handle:
-                current = handle.read()
-            if current != source:
-                shutil.copyfile(source_path, candidate)
-                report.append("synced the bundled shader into the shelf: {0}".format(candidate))
-        except OSError as exc:
-            report.append("!! shelf sync failed {0}: {1}".format(candidate, exc))
+        for source_path in product:
+            candidate = os.path.join(folder, os.path.basename(source_path))
+            try:
+                with open(source_path, "rb") as handle:
+                    source = handle.read()
+                current = b""
+                if os.path.isfile(candidate):
+                    with open(candidate, "rb") as handle:
+                        current = handle.read()
+                if current != source:
+                    shutil.copyfile(source_path, candidate)
+                    report.append("synced {0} into the shelf: {1}".format(
+                        os.path.basename(source_path), candidate))
+            except OSError as exc:
+                report.append("!! shelf sync failed {0}: {1}".format(candidate, exc))
 
 
 def find_shader_resource(report):
