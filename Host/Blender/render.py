@@ -315,8 +315,7 @@ def operator_class(command):
         "bl_idname": command.id,
         "bl_label": command.label,
         "bl_description": command.description or command.label,
-        "bl_options": ({"INTERNAL"} if command.internal else
-                      {"REGISTER", "UNDO"} if command.undo else {"REGISTER"}),
+        "bl_options": {"INTERNAL"} if command.internal else {"REGISTER"},
         "__annotations__": annotations,
         "RURI_COMMAND": command,
     }
@@ -342,7 +341,7 @@ def operator_class(command):
     # generator runs inline when there is no window (a script, a headless build),
     # which is what keeps the two from diverging.
     from ...Kernel import host as host_port
-    from . import step_loader
+    from . import allocator, step_loader
 
     def load_steps(self, context):
         return command.run(context, arguments_of(self))
@@ -355,6 +354,7 @@ def operator_class(command):
 
     def settle(self, context, result):
         outcome = command.settle(context, result)
+        allocator.release()
         return outcome if outcome is not None else {"FINISHED"}
 
     def execute_inline(self, context):

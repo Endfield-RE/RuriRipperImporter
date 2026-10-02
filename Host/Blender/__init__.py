@@ -313,7 +313,7 @@ HOST = host_port.bind(BlenderHost())
 
 from ... import Game                                                    # noqa: E402
 from . import (rna, render, coordinate, rig_identity, plugin_data, linked_twins, material_builder,  # noqa: E402
-               material_panel, derived_state, animation_builder, step_loader, browser_panel,
+               material_panel, derived_state, allocator, animation_builder, step_loader, browser_panel,
                post_panel, viewpoint)
 
 
@@ -447,6 +447,8 @@ def register():
     # 派生态调度器:导入产物、灯、相机的变更从这里统一收敛成一次重建。装在游戏之前,
     # 这样一个游戏的着色栈注册进来的阶段第一次被用到时,调度器已经在监听了。
     derived_state.register()
+    # 开文件时先由派生态现建(后台当场落地),再把旧文件释放掉的内存还给系统。
+    allocator.register()
     # 合成树读的视点:界面里跟着用户正在转的那个 3D 视图走,文件换了 / 撤销了就重新认领。
     viewpoint.register()
     # 材质参数面板:每个生成着色栈把自己的接口 + 读写路径注册进来(Game.register 里发生),
@@ -483,6 +485,7 @@ def unregister():
     Game.unregister()
     material_panel.unregister()
     viewpoint.unregister()
+    allocator.unregister()
     derived_state.unregister()
     browser_panel.unregister()
     linked_twins.unregister()

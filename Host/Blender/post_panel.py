@@ -41,7 +41,7 @@ class RURI_OT_post_install(bpy.types.Operator):
     bl_idname = "ruri.post_install"
     bl_label = "Install Post Chain"
     bl_description = "Put the loaded game's post-processing onto this scene's compositor"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     @classmethod
     def poll(cls, context):
@@ -60,7 +60,7 @@ class RURI_OT_post_remove(bpy.types.Operator):
     bl_label = "Remove Post Chain"
     bl_description = ("Take the game's post-processing back off and restore the compositor tree, "
                       "compositing switch and view transform this scene had before it was installed")
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     @classmethod
     def poll(cls, context):
@@ -81,7 +81,7 @@ class RURI_OT_post_viewport_preview(bpy.types.Operator):
     bl_description = ("Also run this chain in the 3D viewport. Off, it runs in the final render only: the viewport "
                       "compositor re-runs every chain on each redraw -- every orbit step and every sample while the "
                       "view converges -- so heavy screen-space chains stay out of it until asked for")
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     group: bpy.props.StringProperty()
     kind: bpy.props.StringProperty()
@@ -99,7 +99,7 @@ class RURI_OT_post_reset(bpy.types.Operator):
     bl_idname = "ruri.post_reset"
     bl_label = "Reset Parameters"
     bl_description = "Put every parameter of the installed chain back to the value the game ships"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     @classmethod
     def poll(cls, context):
@@ -154,7 +154,7 @@ class RURI_OT_main_light_set(bpy.types.Operator):
     bl_label = "Override Main Light"
     bl_description = ("Point the selected objects' Ruri materials at this light instead of the "
                       "scene sun, and re-answer their lighting queries")
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     light: bpy.props.StringProperty(name="Light")
 
@@ -181,7 +181,7 @@ class RURI_OT_main_light_clear(bpy.types.Operator):
     bl_idname = "ruri.main_light_clear"
     bl_label = "Use Scene Light"
     bl_description = "Drop the override and go back to the scene sun (or the forward light)"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     def execute(self, context):
         mats = [m for m in _ruri_materials(context.selected_objects)
@@ -205,7 +205,7 @@ class RURI_OT_derived_rebuild(bpy.types.Operator):
                       "stack is otherwise built ONLY when you import from the game -- a camera "
                       "move just re-fills its uniforms -- so this is also how you get outlines "
                       "back after deleting the modifier, or pick up material edits made by hand")
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     def execute(self, context):
         derived_state.rebuild_all()
