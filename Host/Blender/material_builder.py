@@ -966,8 +966,9 @@ def _write_tiles(image, tiles):
     stored row at the bottom (Blender's pixel order, and the order the source stores rows in).
     A tile takes its pixels only from a file, so each goes through a throwaway half-float OpenEXR
     -- written top row first, as the format stores it -- the image reloads them as its tiles and
-    packs them, and the files go. A level with no tiles leaves the image as it is: nothing
-    reads it."""
+    packs them, and the files go. Tiles packed by an earlier write are dropped first: a packed
+    tile re-packs from the file it was packed from, and that file is already gone. A level with no
+    tiles leaves the image as it is: nothing reads it."""
     import shutil
     import tempfile
     import numpy
@@ -987,6 +988,8 @@ def _write_tiles(image, tiles):
                 raise RuntimeError("[material] cannot write tile {0}: {1}".format(path, oiio.geterror()))
             output.write_image(numpy.ascontiguousarray(pixels[::-1]))
             output.close()
+        if image.packed_files:
+            image.unpack(method="REMOVE")
         wanted = {1001 + index for index in range(len(tiles))}
         for tile in list(image.tiles):
             if tile.number not in wanted:
