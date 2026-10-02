@@ -622,9 +622,10 @@ def morph_library():
 
 
 def morph_assets(cabs):
-    """The pose/emotion/animation/lipsync assets these CABs carry. Which of the
-    four an asset IS comes from the fields it carries, which is the hook's read."""
-    return [{"name": row["name"], "kind": row["kind"], "duration": row["duration"],
+    """The pose/emotion/animation/lipsync assets these CABs carry, each with the
+    archive it was read from. Which of the four an asset IS comes from the fields it
+    carries, which is the hook's read."""
+    return [{"name": row["name"], "kind": row["kind"], "cab": row["cab"], "duration": row["duration"],
              "animated": bool(_int(row["animated"]))}
             for row in _rows(MORPH_ASSETS, cab=list(cabs))]
 

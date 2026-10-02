@@ -144,7 +144,7 @@ def load_assets(cabs):
         name = row["name"]
         if name in ASSETS:
             continue
-        asset = skeletal_morph.MorphAsset(name, name, row["kind"])
+        asset = skeletal_morph.MorphAsset(name, name, row["kind"], row["cab"])
         asset.duration = row["duration"]
         asset.flags = flags.get(name, {})
         asset.references = references.get(name, {})
@@ -288,8 +288,8 @@ def avatars_for(token=""):
 def loaded_of_kind(kind, character_only=False):
     """Parsed assets of one kind, in the discovered order, so a host's list
     keeps the same ordering before and after loading."""
-    wanted = {entry["name"] for entry in entries_for(kind, character_only)}
-    assets = [asset for name, asset in ASSETS.items() if name in wanted]
+    wanted = {entry["cab"].lower() for entry in entries_for(kind, character_only)}
+    assets = [asset for asset in ASSETS.values() if asset.cab.lower() in wanted]
     assets.sort(key=lambda asset: asset.name.lower())
     return assets
 
