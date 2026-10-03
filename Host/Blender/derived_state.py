@@ -69,7 +69,7 @@ OBJECTS = "objects"            # 有新对象进场
 MATERIALS = "materials"        # 有新材质进场
 CAMERA = "camera"              # 活动相机的身份/位姿/投影/输出分辨率
 LIGHT_SET = "light_set"        # 灯的增删/类型/可见性(只影响谁是主光,零重接)
-LIGHT_VALUES = "light_values"  # 灯的位姿/颜色/强度/锥角(宿主自己读灯,这里只重挑主光)
+LIGHT_VALUES = "light_values"  # 灯的位姿/颜色/强度/锥角/镜面倍率(宿主自己读灯,这里重挑主光、重写灯上维护的那几格)
 WORLD = "world"                # 世界被换或被改(环境采样是建组时快照,只有这件事还要重接兑现面)
 RIG = "rig"                    # 骨架的骨骼名册变了(顶点腿的骨骼基座按名字接进几何节点)
 ENGINE = "engine"              # 渲染引擎被换(表面闭包与能力答案按引擎建;灯只有宿主自己的原生灯节点)
@@ -419,6 +419,7 @@ def _light_values_signature(scene):
             round(light.energy, 5),
             round(getattr(light, "spot_size", 0.0), 5),
             round(getattr(light, "spot_blend", 0.0), 5),
+            round(light.specular_factor, 5),
         ))
     signature.sort()
     return tuple(signature)

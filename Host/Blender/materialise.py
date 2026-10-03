@@ -630,7 +630,8 @@ class _Materialisation:
         (``Light::point_radiance_get``). A sun's strength is already the irradiance it hands
         over. So point and spot power is the intensity times 4 pi, and a sun's is the
         intensity as stated. The source's lights are points: no radius. What a light scatters
-        into a participating medium is scaled by the volume factor it states.
+        into a participating medium is scaled by the volume factor it states, its specular
+        reflections by the specular factor it states.
 
         A stated shadow resolution is the texels the source's shadow map spans across the
         light's shadow frustum: a spot's cone, each face of a point light's cube (a 90 degree
@@ -647,6 +648,7 @@ class _Materialisation:
         light.color = stated["color"]
         light.use_shadow = stated["shadows"]
         light.volume_factor = stated["volume"]
+        light.specular_factor = stated["specular"]
         if kind in ("POINT", "SPOT"):
             light.energy = stated["intensity"] * 4.0 * np.pi
             light.shadow_soft_size = 0.0
