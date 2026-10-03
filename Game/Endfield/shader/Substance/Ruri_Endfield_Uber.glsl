@@ -172,7 +172,7 @@ uniform vec4 _CharacterParams1;
 uniform vec4 _CharacterParams10;
 //: param custom { "default": [-0.433, 0.5, 0.75, -0.4], "label": "CP11 (方向覆写 xyz + .w=明暗交界线偏移)", "group": "引擎全局 CP" }
 uniform vec4 _CharacterParams11;
-//: param custom { "default": [1, 0, 0, 0], "label": "CP12 (.x=灯光手动控制 .y=主光色覆写量 .z=shadowGate .w=exposureBlend)", "group": "引擎全局 CP" }
+//: param custom { "default": [1, 0, 1, 0], "label": "CP12 (.x=灯光手动控制 .y=主光色覆写量 .z=收场景附加光 .w=exposureBlend)", "group": "引擎全局 CP" }
 uniform vec4 _CharacterParams12;
 //: param custom { "default": [0, 0, 0, 1], "label": "CP13 (.w=GGX specular toggle)", "group": "引擎全局 CP" }
 uniform vec4 _CharacterParams13;
@@ -1595,6 +1595,15 @@ vec3 DesaturateAroundLuma(vec3 color, float refLum, float desatAmt)
     return f * (color - refLum) + refLum;
 }
 
+// 皮肤族(CharacterNPR_Skin:脸与身体皮肤)的逐灯循环:默认类型按 0.5 包裹,开 SDF 时包裹方向是扁平径向与
+// SDF 混合法线按 SDF 遮罩 .y 的混合;余弦与权重取 SDF 混合法线(不开 SDF 时就是着色法线);开 SDF 时色阶类型与轮廓光类型
+// 按真源的 SDF 式子(色阶:SDF 图 .w 的门与按遮罩 .y 收窄的台阶取大;轮廓光:视角门与 SDF 遮罩 .w 按 数据.x 换支);
+// 镜面按 <paramref name="specN"/>;漫反射不乘预乘 alpha。
+vec3 Endfield_SkinPunctualLights(vec3 accumulated, vec3 P, vec3 sdfBlendedN, vec3 specN, vec3 geometricNormal, vec3 flatDir, vec3 V, vec3 camFwd, vec3 litDiffuse, vec3 diffColor, vec3 shadowDiff, vec3 specColor, float perceptualRoughness, float metallic, float alpha, float mainShadow, vec4 sdfMask, float sdfLightmapW, float camGate, bool sdf)
+{
+    return accumulated;
+}
+
 vec3 VFXColorAdjust(vec3 litColor, float NdotV, float rimMod)
 {
     float litLum = Luminance(litColor);
@@ -1673,6 +1682,7 @@ void Endfield_Face(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuf
     vec3 sdfBlendedN = N;
     float sdfValue = 0.0;
     float sdfNdotL = 0.0;
+    float sdfLightmapW = 0.0;
     if (_UseSDFLightmap)
     {
         float objLightX = dot(ruriData.adjustedLightDir, faceRight);
@@ -1684,6 +1694,7 @@ void Endfield_Face(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuf
         vec2 sdfUV = float2(mad(lightSide, uv.x - mirrorU, mirrorU), uv.y);
         vec4 sdfSample = textureLod(_SDFLightmap, ruriUvClamp(_SDFLightmap, sdfUV), 0.0);
         sdfValue = sdfSample.x + sdfSample.y;
+        sdfLightmapW = sdfSample.w;
         float sdfNx_base = 1.0 - 2.0 * sdfSample.z;
         float sdfNx = mad(lightSide, (2.0 * sdfSample.z - 1.0) - sdfNx_base, sdfNx_base);
         vec3 sdfFlatN = ruriNormalize(float3(sdfNx, HALF_MIN, 1.0 - abs(sdfNx)));
@@ -1753,11 +1764,12 @@ void Endfield_Face(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuf
     vec3 skinDir = ComputeSkinDir(ruriData.camFwd);
     float skinSmooth = ComputeSkinSmoothFalloff(dot(ruriData.V, sdfBlendedN));
     float skinAmt;
+    float camGate = 0.0;
     if (_UseSDFLightmap)
     {
         float camAngleAbs = abs(camFwdObj.z * camFwdObj_xz_invLen);
         float camGateT = saturate((camAngleAbs - 0.9) * 10.0);
-        float camGate = camGateT * camGateT * (3.0 - 2.0 * camGateT);
+        camGate = camGateT * camGateT * (3.0 - 2.0 * camGateT);
         float cp9wGate = saturate(_CharacterParams9.w * 10.0 - 3.0);
         float camFacingSkin = ((dot(ruriData.camFwd, skinDir) < -0.01) ? 1.0 : 0.0);
         skinAmt = lerp(camGate * skinSmooth, max(camGate, camFacingSkin) * sdfMask.w, cp9wGate);
@@ -1783,6 +1795,7 @@ void Endfield_Face(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuf
         cp14Term = diffColor * cp14Spec * _CharacterParams14.xyz * _CharacterParams14.w;
     }
     vec3 litColor = DesaturateAroundLuma(mainLit, mainLitLum, desatAmt) + skinTerm + subsurfSpec + cp14Term;
+    litColor = Endfield_SkinPunctualLights(litColor, ruriData.positionWS, sdfBlendedN, N, faceSign * ruriNormalize(input_.normalWS), flatDir, ruriData.V, ruriData.camFwd, nprDiff, diffColor, shadowLut, specColor, roughnessRaw, float(_Metallic), roughness, castShadow, sdfMask, sdfLightmapW, camGate, _UseSDFLightmap);
     if (_EnableVFXColorAdjustment > 0.5)
         litColor = VFXColorAdjust(litColor, NdotV_sat, rimModifier);
     vec3 finalColor = litColor * _ExposureWithMiscParams.y;
@@ -1795,6 +1808,13 @@ void Endfield_Face(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuf
     outputData.metallic = _Metallic;
     outputData.specular = specScale;
     outputData.globalIllumination = float4(finalColor, 1.0);
+}
+
+// 眼睛族(CharacterNPR_Eye,也是眉毛)的逐灯循环:只有默认类型(0.25 包裹、主光着色结果)与色阶类型两种进账,
+// 没有镜面;轮廓光类型在眼睛上强度为 0。
+vec3 Endfield_EyesPunctualLights(vec3 accumulated, vec3 P, vec3 N, vec3 geometricNormal, vec3 flatDir, vec3 litDiffuse, vec3 diffColor, vec3 shadowDiff, float diffuseScale, float mainShadow)
+{
+    return accumulated;
 }
 
 void Endfield_Eyes(inout RuriData ruriData, CharaVaryings input_, inout RuriGBufferData outputData, float faceSign)
@@ -1960,7 +1980,8 @@ void Endfield_Eyes(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuf
         vec3 emissionTerm = (_UseEmission ? ruriRead_EmissionMap(sampleUV).rgb * _EmissionColor.rgb * _EmissionBrightness : float3(0, 0, 0));
         eyeDirect = (emissionTerm + eyeAlbedo * _CharacterParams13.x + (irisMask * _EyeHighLightColor.rgb) * _CharacterParams13.y + (eyeBaseAlpha * _EyeScatteringColor.rgb) * _CharacterParams13.z) * alphaPremult;
     }
-    vec3 finalColor = (eyeDirect + subsurfSpec + term1) * _ExposureWithMiscParams.y;
+    vec3 litColor = Endfield_EyesPunctualLights(eyeDirect + subsurfSpec + term1, ruriData.positionWS, lightN, N, GetObjectFlatDir(ruriData.positionWS), nprDiff, diffColor, shadowColor, alphaPremult, eyeShadow);
+    vec3 finalColor = litColor * _ExposureWithMiscParams.y;
     // 真源片元尾(b24 _2175.w):alpha = (_SurfaceType==1) ? baseA*_BaseColor.w : 1。
     // RURI_INIT_COMMON 无条件给的 baseA 在不透明眼材质上是虹膜散射遮罩,不是透明度——门必须补回。
     ruriData.alpha = (_SurfaceType == 1 ? eyeBaseAlpha : 1.0);
@@ -1987,6 +2008,15 @@ vec4 SampleDiffRamp(float modNdotL, vec3 N, vec3 camFwd, out float outChroma, ou
 
 float SampleSceneDepth(vec2 uv) {
     return 0.0;
+}
+
+// 头发族(CharacterNPR_Hair)的逐灯循环:默认类型按 0.25 包裹;没有高光类型那一支(它与其余类型一样只进镜面);
+// 轮廓光类型按屏幕深度 —— 沿视空间法线在屏幕上偏 数据.x × 0.006 取一次深度,比本点深 0.1~0.2 的那一段亮;镜面是发丝的
+// 各向异性:sin(T,H)^200(有高光色阶图时乘 <paramref name="specScale"/> 钳一并按色阶图取色)× 边缘渐隐 × 镜面色
+// × _AnisotropyIntensity × 5。
+vec3 Endfield_HairPunctualLights(vec3 accumulated, vec3 P, vec3 N, vec3 geometricNormal, vec3 flatDir, vec3 V, vec3 camFwd, vec3 litDiffuse, vec3 diffColor, vec3 shadowDiff, vec3 specColor, vec3 strandTangent, float specScale, float edgeFade, float darkenScale, float diffuseScale, float mainShadow, vec2 screenUV, vec2 screenNormal, float viewDepth)
+{
+    return accumulated;
 }
 
 void Endfield_Hair(inout RuriData ruriData, CharaVaryings input_, inout RuriGBufferData outputData, float faceSign)
@@ -2157,6 +2187,7 @@ void Endfield_Hair(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuf
     vec3 skinSpec = ComputeSkinSpec(skinDir, N, diffColor, skinNdotL, depthSmooth);
     vec3 subsurfSpec = BRDF_SubsurfaceSpec_Endfield(N, ruriData.V, ruriData.adjXZ_x, ruriData.adjXZ_z, ruriData.adjXZLen, (1.0 - _CharacterParams12.x) * ruriData.camLightDot, shadowMask, diffColorLum, diffColor, blendedLightCol * blendedLightInt);
     vec3 litColor = DesaturateAroundLuma(combined, combinedLum, desatAmt) + skinSpec + subsurfSpec;
+    litColor = Endfield_HairPunctualLights(litColor, ruriData.positionWS, N, faceSign * nrmWS, flatDir, ruriData.V, ruriData.camFwd, nprDiff, diffColor, shadowDiff, float3(dielSpec, dielSpec, dielSpec), shiftedT1, specScale, edgeFade, darkenedScale, alphaPremul, castShadow, screenUV, viewNDir * float2(aspect, 1.0), input_.positionNDC.w);
     if (_EnableVFXColorAdjustment > 0.5)
         litColor = VFXColorAdjust(litColor, saturate(dot(N, ruriData.V)), 1.0);
     vec3 finalColor = litColor * _ExposureWithMiscParams.y;
@@ -2275,6 +2306,16 @@ vec3 IBL_SpecularSplitSum_Endfield_Probe(vec3 V, vec3 N, float NdotV_spec, float
     vec4 cubeEnc = vec4(ruriPrefilteredEnvironment(reflDir, CubeMipToPerceptualRoughness_Endfield(cubeMip)), 1.0);
     vec3 cubeSample = DecodeHDREnvironment(cubeEnc, unity_SpecCube0_HDR);
     return IBL_SplitSumCombine(cubeSample, NdotV_spec, roughness, specRampEnv, ambIntensity, ambCol);
+}
+
+// 本体族(CharacterNPR,也是液态银)的逐灯循环:默认类型按 0.25 包裹、漫反射色取主光着色结果;色阶类型
+// saturate(NoL + 数据.x) × 阴影 在阴影色 × 数据.y 与漫反射色之间取;高光类型按粗糙度阈值与只给金属开关乘镜面、
+// 把 α 朝 0.01 收;轮廓光类型按 1 - |NoV| 的 smoothstep 与阴影、不带镜面;其余类型只进镜面;漫反射乘
+// <paramref name="diffuseScale"/>。镜面法线 <paramref name="specN"/>(液态银取几何法线)。清漆那一瓣只在材质开了清漆
+// (<paramref name="clearCoat"/>,材质常量)且这一点有清漆遮罩(<paramref name="clearCoatActive"/>)时进账。
+vec3 Endfield_StandardPunctualLights(vec3 accumulated, vec3 P, vec3 N, vec3 specN, vec3 geometricNormal, vec3 flatDir, vec3 V, vec3 camFwd, vec3 litDiffuse, vec3 diffColor, vec3 shadowDiff, vec3 specColor, float perceptualRoughness, float metallic, float alpha, float diffuseScale, float mainShadow, bool clearCoat, bool clearCoatActive, vec3 ccN, float ccAlpha, vec3 ccF0, float ccMask)
+{
+    return accumulated;
 }
 
 // 真源毛发壳在角色深度预趟(PreGBuffer,LightMode DepthCharacterOnly,b1321)里的去留:本层 alpha
@@ -2407,6 +2448,7 @@ void Endfield_Fur(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuff
         vec3 vfxContrib = vfxOpacity * lerp(vfxDissolvedColor, _VFXFresnelColor.rgb, vfxFresnelAlpha);
         finalColor += vfxContrib * alphaPremul;
     }
+    finalColor = Endfield_StandardPunctualLights(finalColor, ruriData.positionWS, N, N, faceSign * ruriNormalize(input_.normalWS), flatDir, ruriData.V, ruriData.camFwd, nprDiff, diffColor, shadowDiff, specColor, roughnessF, metallicF, alpha2, alphaPremul, castShadow, false, false, N, 0.0078125, float3(0.0, 0.0, 0.0), 0.0);
     finalColor *= _ExposureWithMiscParams.y;
     ruriData.alpha = ((_SurfaceType == 1) ? shellAlpha : 1.0);
     // 真源前向趟 ZWrite Off、ZTest LEqual、按壳序 over:预趟里幸存的最外层把基底与更里的层挡在深度外,
@@ -2522,6 +2564,14 @@ void Endfield_VFX(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuff
     outputData.globalIllumination = float4(finalAlpha * color, outAlpha);
 }
 
+// 叠加阴影(CharacterNPR_OverlayShadow 的第二趟)的逐灯循环:只有雾类型进账,不取 cookie,把
+// saturate(累加 + 衰减 × 数据.x) 累成这一片阴影被雾冲淡的份额。
+float Endfield_OverlayShadowFog(vec3 P)
+{
+    float fog = 0.0;
+    return fog;
+}
+
 float LoadScreenSurfaceClass(vec2 normalizedScreenSpaceUV) {
     return 0.0;
 }
@@ -2530,15 +2580,16 @@ vec4 WriteMultiplyFrame(vec3 factor, float coverage) {
     return ruriTransparentFrame(factor, coverage);
 }
 
-// 真源 OverlayShadow 趟(b10/b11)。覆盖率 = 贴图 alpha × <c>_BaseColor.a</c>;没开 <c>DISABLE_DRAW_UNDER_HAIR</c> 时
-// 「画在头发底下」:预趟把这一像素标成头发(第 3 张目标 alpha == 1)就把覆盖率归零。因子乘进帧缓冲,落帧交给宿主。
+// 真源 OverlayShadow 趟(b10/b11)。覆盖率 = 贴图 alpha × <c>_BaseColor.a</c> × (1 - 雾灯冲淡的份额);没开
+// <c>DISABLE_DRAW_UNDER_HAIR</c> 时「画在头发底下」:预趟把这一像素标成头发(第 3 张目标 alpha == 1)就把覆盖率归零。
+// 因子乘进帧缓冲,落帧交给宿主。
 void Endfield_OverlayShadow(inout RuriData ruriData, CharaVaryings input_, inout RuriGBufferData outputData)
 {
     const float hairSurfaceClass = 1.0;
     vec4 tex = ruriData.baseSample;
     vec3 rgb = lerp(tex.rgb, float3(1, 1, 1), _UseGrayAsAlpha);
     float alpha = lerp(tex.a, tex.r, _UseGrayAsAlpha);
-    float shadowAlpha = alpha * _BaseColor.a;
+    float shadowAlpha = alpha * _BaseColor.a * (1.0 - Endfield_OverlayShadowFog(ruriData.positionWS));
     if (!(DISABLE_DRAW_UNDER_HAIR))
     {
         if (LoadScreenSurfaceClass(ruriData.normalizedScreenSpaceUV) == hairSurfaceClass)
@@ -2807,12 +2858,15 @@ void Endfield_LiquidAg(inout RuriData ruriData, CharaVaryings input_, inout Ruri
     vec3 ccSpecDir = float3(0, 0, 0);
     vec3 ccBaseScale = float3(1, 1, 1);
     vec3 ccDiffScale = float3(1, 1, 1);
-    if (_ClearCoat && ccActive)
+    if (_ClearCoat)
     {
-        float ccNdotH = dot(ccN, ggxH);
-        float ccNdotV = saturate(dot(ccN, ruriData.V));
-        float VdotH = saturate(dot(ruriData.V, ggxH));
-        ccSpecDir = BRDF_ClearCoat_Direct_Burley(ccMask, ccPercRough, ccAlpha, ccF0, ccNdotH, ccNdotV, VdotH, ccBaseScale, ccDiffScale);
+        if (ccActive)
+        {
+            float ccNdotH = dot(ccN, ggxH);
+            float ccNdotV = saturate(dot(ccN, ruriData.V));
+            float VdotH = saturate(dot(ruriData.V, ggxH));
+            ccSpecDir = BRDF_ClearCoat_Direct_Burley(ccMask, ccPercRough, ccAlpha, ccF0, ccNdotH, ccNdotV, VdotH, ccBaseScale, ccDiffScale);
+        }
     }
     vec3 mainLit = ((_ClearCoat) ? (fullDiff * nprDiff * alphaPremul * ccDiffScale + (specAmbInt * fullDiff) * (ggxTerm * specRampColor * ccBaseScale * ccBaseScale + ccSpecDir) * _CharacterParams13.w) : (fullDiff * nprDiff * alphaPremul + (specAmbInt * fullDiff) * (ggxTerm * specRampColor) * _CharacterParams13.w));
     float mainLitLum = Luminance(mainLit);
@@ -2826,9 +2880,12 @@ void Endfield_LiquidAg(inout RuriData ruriData, CharaVaryings input_, inout Ruri
     float envNdotV = saturate(dot(envNormal, ruriData.V));
     float envAlpha = roughnessF * roughnessF;
     vec3 cubemapContrib = IBL_SpecularSplitSum_Endfield(ruriData.V, envNormal, envNdotV, envAlpha, roughnessF, specRampEnv, cubeAmbInt, ambCol);
-    if (_ClearCoat && ccActive)
+    if (_ClearCoat)
     {
-        cubemapContrib += ccMask * BRDF_ClearCoat_IBL_Burley(ruriData.V, ccN, ccPercRough, ccAlpha, ccF0);
+        if (ccActive)
+        {
+            cubemapContrib += ccMask * BRDF_ClearCoat_IBL_Burley(ruriData.V, ccN, ccPercRough, ccAlpha, ccF0);
+        }
     }
     vec3 emissionContrib = float3(0, 0, 0);
     if (_UseEmission)
@@ -2850,6 +2907,7 @@ void Endfield_LiquidAg(inout RuriData ruriData, CharaVaryings input_, inout Ruri
         vec3 vfxContrib = vfxOpacity * lerp(vfxDissolvedColor, _VFXFresnelColor.rgb, vfxFresnelAlpha);
         litColor += vfxContrib * alphaPremul;
     }
+    litColor = Endfield_StandardPunctualLights(litColor, ruriData.positionWS, N, envNormal, envNormal, flatDir, ruriData.V, ruriData.camFwd, nprDiff, diffColor, shadowDiff, specColor, roughnessF, metallicF, alpha2, alphaPremul, castShadow, false, false, ccN, ccAlpha, ccF0, ccMask);
     if (_EnableVFXColorAdjustment > 0.5)
         litColor = VFXColorAdjust(litColor, ggxNdotV, 1.0);
     vec3 finalColor = litColor * _ExposureWithMiscParams.y;
@@ -2951,12 +3009,15 @@ void Endfield_Standard(inout RuriData ruriData, CharaVaryings input_, inout Ruri
     vec3 ccSpecDir = float3(0, 0, 0);
     vec3 ccBaseScale = float3(1, 1, 1);
     vec3 ccDiffScale = float3(1, 1, 1);
-    if (_ClearCoat && ccActive)
+    if (_ClearCoat)
     {
-        float ccNdotH = dot(ccN, ggxH);
-        float ccNdotV = saturate(dot(ccN, ruriData.V));
-        float VdotH = saturate(dot(ruriData.V, ggxH));
-        ccSpecDir = BRDF_ClearCoat_Direct_Burley(ccMask, ccPercRough, ccAlpha, ccF0, ccNdotH, ccNdotV, VdotH, ccBaseScale, ccDiffScale);
+        if (ccActive)
+        {
+            float ccNdotH = dot(ccN, ggxH);
+            float ccNdotV = saturate(dot(ccN, ruriData.V));
+            float VdotH = saturate(dot(ruriData.V, ggxH));
+            ccSpecDir = BRDF_ClearCoat_Direct_Burley(ccMask, ccPercRough, ccAlpha, ccF0, ccNdotH, ccNdotV, VdotH, ccBaseScale, ccDiffScale);
+        }
     }
     vec3 mainLit = ((_ClearCoat) ? (fullDiff * nprDiff * alphaPremul * ccDiffScale + (specAmbInt * fullDiff) * (ggxTerm * specRampColor * ccBaseScale * ccBaseScale + ccSpecDir) * _CharacterParams13.w) : (fullDiff * nprDiff * alphaPremul + (specAmbInt * fullDiff) * (ggxTerm * specRampColor) * _CharacterParams13.w));
     float mainLitLum = Luminance(mainLit);
@@ -2970,9 +3031,12 @@ void Endfield_Standard(inout RuriData ruriData, CharaVaryings input_, inout Ruri
     float envNdotV = saturate(dot(envNormal, ruriData.V));
     float envAlpha = roughnessF * roughnessF;
     vec3 cubemapContrib = IBL_SpecularSplitSum_Endfield(ruriData.V, envNormal, envNdotV, envAlpha, roughnessF, specRampEnv, cubeAmbInt, ambCol);
-    if (_ClearCoat && ccActive)
+    if (_ClearCoat)
     {
-        cubemapContrib += ccMask * BRDF_ClearCoat_IBL_Burley(ruriData.V, ccN, ccPercRough, ccAlpha, ccF0);
+        if (ccActive)
+        {
+            cubemapContrib += ccMask * BRDF_ClearCoat_IBL_Burley(ruriData.V, ccN, ccPercRough, ccAlpha, ccF0);
+        }
     }
     vec3 emissionContrib = float3(0, 0, 0);
     if (_UseEmission)
@@ -2982,6 +3046,7 @@ void Endfield_Standard(inout RuriData ruriData, CharaVaryings input_, inout Ruri
     float desatAmt = clamp(mainLitLum - 0.5, 0.0, 0.5);
     vec3 desatMainLit = DesaturateAroundLuma(mainLit, mainLitLum, desatAmt);
     vec3 litColor = desatMainLit + skinSpec + subsurfSpec + emissionContrib + cubemapContrib;
+    litColor = Endfield_StandardPunctualLights(litColor, ruriData.positionWS, N, N, envNormal, flatDir, ruriData.V, ruriData.camFwd, nprDiff, diffColor, shadowDiff, specColor, roughnessF, metallicF, alpha2, alphaPremul, castShadow, _ClearCoat, ccActive, ccN, ccAlpha, ccF0, ccMask);
     if (_EnableVFXColorAdjustment > 0.5)
         litColor = VFXColorAdjust(litColor, ggxNdotV, 1.0);
     vec3 finalColor = litColor * _ExposureWithMiscParams.y;
@@ -3039,12 +3104,6 @@ void CalcRuriNPR(inout RuriData ruriData, CharaVaryings input_, inout RuriGBuffe
     Fragment_Endfield(ruriData, input_, outputData, facing);
 }
 
-vec3 RuriCharaAdditionalLights(vec3 positionWS, vec3 N, vec2 normalizedScreenSpaceUV, vec3 albedo)
-{
-    vec3 lightAccum = float3(0.0, 0.0, 0.0);
-    return lightAccum;
-}
-
 vec3 PackGBufferNormal(vec3 normalWS)
 {
     float l1 = abs(normalWS.x) + abs(normalWS.y) + abs(normalWS.z);
@@ -3092,7 +3151,6 @@ GBufferFragOutput CharaMixedPassFragment(CharaVaryings input_, float facing)
     RuriGBufferData outputData = ruriZeroRuriGBufferData();
     CalcRuriNPR(ruriData, input_, outputData, facing);
     outputData.baseColor = outputData.globalIllumination.xyz;
-    outputData.baseColor.rgb = outputData.baseColor.rgb + RuriCharaAdditionalLights(ruriData.positionWS, ruriData.normalWS, ruriData.normalizedScreenSpaceUV, ruriData.albedo);
     outputData.alpha = ruriData.alpha;
     if (ruriData.overClearedBackdrop > 0.5)
     {
