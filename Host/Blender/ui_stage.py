@@ -7,17 +7,13 @@ invented here:
                          PRE-DIVIDED intensity its own shaders are handed
                          (``directIntensityDividePi``; see ``_write_light``),
                          plus the sky's own ambient SH as the world colour.
-``HGCharacterVolume``    the character-lighting overrides, pushed onto every
-                         Endfield uber material in the scene as its
-                         ``_CharacterParams*`` inputs (see BINDINGS -- which
-                         volume field lands in which slot is read off how the
-                         game's own shader uses that component).
+``volume``               the engine globals the stage's own volumes blend to --
+                         the post-processing switches and the character lighting,
+                         packed the way the game's render pipeline packs them --
+                         written onto the scene's world the way a level's are, so
+                         the shading stacks read them live.
 ``stage prefab``         the stage itself, loaded through the kernel's one load:
                          floor, sky sphere, cameras, hierarchy 1:1.
-
-Only parameters the volume actually OVERRIDES are pushed: an unticked row in the
-game's inspector contributes nothing, and writing its m_Value anyway would dress
-a stale default up as a setting.
 """
 
 from __future__ import annotations
@@ -26,7 +22,7 @@ import bpy
 import numpy
 from mathutils import Vector
 
-from . import coordinate, derived_state, material_panel, materialise
+from . import coordinate, derived_state, material_builder, materialise
 from ...Kernel.app import loading, staging
 
 MAIN_CAMERA_TAG = "MainCamera"
@@ -41,9 +37,6 @@ LIGHT_COLOR = staging.LIGHT_COLOR
 LIGHT_SHADOWS = staging.LIGHT_SHADOWS
 LIGHT_VOLUME = staging.LIGHT_VOLUME
 WORLD_COLOR = staging.WORLD_COLOR
-
-_XYZ = {"x": 0, "y": 1, "z": 2}
-
 
 def apply_environment(context, pairs, name="Endfield Sun", exposure_ev=0.0):
     """Build/replace the stage's sun and world from the pairs the game resolved,
@@ -142,72 +135,6 @@ def _world(context, ambient, scale):
     return world
 
 
-def apply_character_params(pushed, materials=None):
-    """Push the (slot, components, value) triples the game resolved onto every
-    material of its own shading stack that is loaded.
-
-    Returns (materials touched, parameters written)."""
-    if not pushed:
-        return 0, 0
-
-    touched = written = 0
-    for material in (materials if materials is not None else bpy.data.materials):
-        entry = material_panel.stack_of(material)
-        if entry is None:
-            continue
-        stack = entry["stack"]
-        # 布局表住生成栈的清单里，经它自己的 part() 取；曾经写成 getattr(stack, "PARAMS", {})，
-        # 而生成物从来没有过这个属性 —— 于是每张材质的 rows 恒为空，整个函数**静默一个 CP 都不写**
-        # （零报错、零日志、画面纹丝不动）。
-        try:
-            params = stack.part(material.get("ruri_uber_part", ""))["params"]
-        except (KeyError, TypeError):
-            continue
-        rows = {row[0]: row for row in params}
-        colors = {key: list(value) for key, value
-                  in dict(material.get("ruri_uber_colors") or {}).items()}
-        hits = 0
-        for slot, comps, value in pushed:
-            name = "_CharacterParams{0}".format(slot)
-            row = rows.get(name)
-            if row is None:
-                continue        # 这个 part 不吃这枚 CP —— 是常态,不是错
-            current = colors.get(name)
-            if current is None:
-                # 快照里没有 = 还停在声明缺省。必须从**声明缺省**起手补齐四分量,
-                # 否则只推 x 的绑定会把 yzw 一并清零。
-                current = [float(row[2][0]), float(row[2][1]), float(row[2][2]), float(row[3])]
-            current = [float(component) for component in current][:4]
-            current += [0.0] * (4 - len(current))
-            if _write_slot(current, comps, value):
-                colors[name] = current
-                hits += 1
-        if hits:
-            # 快照是参数唯一真源:写记录,再由栈把记录写成组输入的常量(sRGB 线性化与各段各循环体的口都在那一处)。
-            material["ruri_uber_colors"] = colors
-            stack.apply_params(material)
-            touched += 1
-            written += hits
-    return touched, written
-
-
-def _write_slot(current, comps, value):
-    """Write one volume value into one CP slot's four components, in place: a tuple fills
-    the components it names, a number the one component it names. Returns whether
-    anything was written."""
-    if comps in ("rgb", "xyzw"):
-        current[:len(value)] = value
-        return True
-    if comps == "w":
-        current[3] = value
-        return True
-    index = _XYZ.get(comps)
-    if index is None:
-        return False
-    current[index] = value
-    return True
-
-
 def adopt_camera(context, cameras):
     """Make the stage's own camera the scene camera, so numpad-0 looks through
     what the game looks through. The render aspect follows: a vertical FOV only
@@ -245,9 +172,10 @@ def load(context, stage, options):
         sun = apply_environment(context, stage["environment"], stage["label"] + " Sun",
                                 stage["exposure"])
         done.append("sun " + (sun.name if sun else "(no direction in the asset)"))
-    if stage["character_params"]:
-        touched, written = apply_character_params(stage["character_params"])
-        done.append("{0} param(s) onto {1} material(s)".format(written, touched))
+    if stage["volume"]:
+        written, unclaimed = material_builder.apply_level_resources(context.scene, stage["volume"], [])
+        done.append("{0} volume global(s){1}".format(
+            len(written), " ({0} no stack reads)".format(len(unclaimed)) if unclaimed else ""))
     if stage["prefabs"]:
         done.extend(_load_art(context, stage["prefabs"], options))
     return done

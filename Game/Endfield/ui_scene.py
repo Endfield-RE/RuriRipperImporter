@@ -3,13 +3,13 @@
 ``Scene`` and ``World`` next door browse places you walk around in. This one
 browses the little lit stages an interface puts a model on -- CharInfo (the
 character screen), CharFormation, WeaponInfo, the dialog stages -- and loads one
-whole: its own sun, its own ambient, its own character-lighting overrides, and its
-art.
+whole: its own sun, its own ambient, what its own volumes blend to (the character
+lighting and the post-processing switches), and its art.
 
 Which stages there are and what each states is the hook's answer
 (``endfield.ui.stages`` / ``endfield.ui.stage``): it finds them among the game's
-own assets and resolves every value -- a light, the ambient, a character
-parameter, a seed of the stage's art -- so a version that ships another stage grows
+own assets and resolves every value -- a light, the ambient, an engine global its
+volumes state, a seed of the stage's art -- so a version that ships another stage grows
 another row here with no code change, and nothing here reads an asset.
 
 What this module does is put that answer into the shared statement
@@ -34,7 +34,7 @@ STATE = "ruri_endfield_ui_scene"
 
 #: What a stated row is, in the dataset's own words.
 ENVIRONMENT = "env"
-PARAMETER = "param"
+VOLUME = "volume"
 PREFAB = "prefab"
 
 
@@ -64,9 +64,10 @@ UI_SCENE_STATE = Schema("EndfieldUIScene", """The display-stage browser's state.
           "at RUNTIME by metering the frame (HGAutoExposure); no field in the asset pins "
           "it, so there is nothing to read and nothing honest to guess",
           soft_minimum=-8.0, soft_maximum=8.0),
-    Field("apply_character_params", app_state.BOOL, True, "Character Params",
-          "Push the stage's HGCharacterVolume onto every material of this game's own "
-          "shading stack that is already loaded"),
+    Field("apply_volume", app_state.BOOL, True, "Volume",
+          "Write what the stage's own volumes blend to -- the character lighting and the "
+          "post-processing switches -- onto the scene's world, the way a level's globals are "
+          "written, for every shading stack of this game to read"),
     Field("reset_scene", app_state.BOOL, False, "Reset Scene",
           "Empty the document first. Off by default: a stage is normally loaded AROUND "
           "a character that is already here"),
@@ -106,9 +107,9 @@ def statement(state, entry):
         "exposure": float(state.exposure_ev) if state.apply_environment else 0.0,
         "environment": ([(row["target"], _value(row)) for row in rows if row["kind"] == ENVIRONMENT]
                         if state.apply_environment else []),
-        "character_params": ([(int(float(row["slot"])), row["components"], _value(row))
-                              for row in rows if row["kind"] == PARAMETER]
-                             if state.apply_character_params else []),
+        "volume": ({row["target"]: tuple(float(row[axis]) for axis in "xyzw")
+                    for row in rows if row["kind"] == VOLUME}
+                   if state.apply_volume else {}),
         "prefabs": [row["seed"] for row in rows if row["kind"] == PREFAB] if state.import_art else [],
     }
 
@@ -196,7 +197,7 @@ def draw_ui_scene_tab(layout, context):
     exposure = options.row()
     exposure.enabled = state.apply_environment
     exposure.prop(state, "exposure_ev")
-    options.prop(state, "apply_character_params")
+    options.prop(state, "apply_volume")
     options.prop(state, "import_art")
     options.prop(state, "reset_scene")
     options.operator(LOAD.id, icon="IMPORT")

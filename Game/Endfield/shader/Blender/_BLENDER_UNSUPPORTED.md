@@ -20,6 +20,7 @@
 | 函数 | 原因 |
 |---|---|
 | OverlayShadow | 终点 ret_gBuffer0 依赖灯答案却接非 Light 口:宿主下沿污染路径按能力缺席值重算 |
+| OverlayShadow | 终点 ret_gBuffer0_w 依赖灯答案却接非 Light 口:宿主下沿污染路径按能力缺席值重算 |
 
 ## 栈 ruri_scene_uber_endfield
 

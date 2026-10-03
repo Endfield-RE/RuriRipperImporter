@@ -97,14 +97,16 @@ POST_STAGES = extensions.point(
     "blender.post_stages",
     "Whole-frame processing a shading stack installs onto the scene.")
 
-#: ``level_global_bases() -> {name: [default, ...]}``. Engine globals a stack
-#: reads LIVE from scene properties instead of baking them into its materials --
-#: per-level values such as fog -- each with the default its recipe declares. The
-#: stack's graph reads ``property + default``, so a property that was never
-#: written answers the default and a session with no level in it is unchanged.
+#: ``level_global_bases() -> {name: (statement, [default, ...])}``. Engine globals a
+#: stack reads LIVE from the level's world instead of baking them into its materials --
+#: per-level values such as fog -- each with the default its recipe declares and what
+#: states it: ``level_global`` (the level's environment phase) or ``volume_global`` (the
+#: volume stack the camera stands in -- post-processing switches, character lighting).
+#: The stack's graph reads ``property + default``, so a property that was never written
+#: answers the default and a session with no level in it is unchanged.
 LEVEL_GLOBALS = extensions.point(
     "blender.level_globals",
-    "Per-level engine globals a shading stack reads live from scene properties.")
+    "Per-level engine globals a shading stack reads live from the level's world.")
 
 #: ``level_image_layouts() -> {name: layout}``. The images a stack reads level
 #: state through, since the host's material nodes only sample 2D images: a 2D
@@ -776,23 +778,32 @@ def _apply_level_globals(scene, values):
     stack's declared default, because the graph reads ``property + default`` and an
     unwritten property reads zero.
 
-    A stack that is handed some of its level globals but not all is refused: the
-    missing ones would silently stay at the recipe default and the picture would be
-    quietly wrong. A stack handed none of them is not this level's consumer (another
-    game's stack) and is left alone. Two stacks declaring different defaults for one
-    name cannot share a property, so that is refused too."""
+    Completeness is judged per statement: what one thing states (the level's phase, or
+    the volume stack the camera stands in) comes whole or not at all. A stack that is
+    handed some of one statement's globals but not all is refused: the missing ones would
+    silently stay at the recipe default and the picture would be quietly wrong. A stack
+    handed none of a statement's globals is not that statement's consumer here (another
+    game's stack, or a display stage that states its volumes and no level) and is left
+    alone. Two stacks declaring different defaults, or different statements, for one name
+    cannot share a property, so that is refused too."""
     bases = {}
+    statements = {}
     for provider in LEVEL_GLOBALS:
         declared = provider()
-        supplied = [name for name in declared if name in values]
-        if supplied and len(supplied) != len(declared):
-            raise KeyError("[material] a stack reads level globals {0}; {1} not supplied".format(
-                sorted(declared), sorted(name for name in declared if name not in values)))
-        for name, base in declared.items():
+        for statement in sorted({kind for kind, _ in declared.values()}):
+            named = sorted(name for name, (kind, _) in declared.items() if kind == statement)
+            supplied = [name for name in named if name in values]
+            if supplied and len(supplied) != len(named):
+                raise KeyError("[material] a stack reads {0} globals {1}; {2} not supplied".format(
+                    statement, named, sorted(name for name in named if name not in values)))
+        for name, (statement, base) in declared.items():
             known = bases.setdefault(name, list(base))
             if known != list(base):
                 raise ValueError("[material] level global {0} has two defaults: {1} and {2}".format(
                     name, known, list(base)))
+            if statements.setdefault(name, statement) != statement:
+                raise ValueError("[material] level global {0} is stated by both {1} and {2}".format(
+                    name, statements[name], statement))
     rows = {}
     for name, value in values.items():
         base = bases.get(name)
