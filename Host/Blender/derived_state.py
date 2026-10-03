@@ -372,17 +372,24 @@ _counts = None
 
 
 def _light_set_signature(scene):
+    """谁是主光的输入:灯的增删/类型与渲染在场 —— 灯自己的相机图标与视图层里集合的排除/相机图标(着色栈按渲染在场
+    挑主光;眼睛只管视口,拨眼睛不重挑)。"""
     signature = []
     for obj in scene.objects:
         if obj.type != "LIGHT":
             continue
-        try:
-            visible = obj.visible_get()
-        except Exception:
-            visible = not obj.hide_viewport
-        signature.append((obj.name, obj.data.type, visible))
+        signature.append((obj.name, obj.data.type, obj.hide_render, tuple(sorted(c.name for c in obj.users_collection))))
     signature.sort()
-    return tuple(signature)
+    layers = []
+
+    def walk(layer_collection):
+        layers.append((layer_collection.name, layer_collection.exclude, layer_collection.collection.hide_render))
+        for child in layer_collection.children:
+            walk(child)
+
+    for view_layer in scene.view_layers:
+        walk(view_layer.layer_collection)
+    return tuple(signature), tuple(layers)
 
 
 def _world_signature(scene):
