@@ -2,6 +2,7 @@
   "host": "Substance",
   "family": "GirlsFrontline",
   "stack": "ruri_character_uber_girlsfrontline",
+  "identity": "486d3a787a1c1f5d",
   "shader": "Ruri_GirlsFrontline_Uber.glsl",
   "generated": "Ruri.RenderPipelines.Generator — 勿手改;改真源后重跑 codegen",
   "operations": [
@@ -50,15 +51,10 @@
       }
     ],
     "keywords": [
+      "MAIN_LIGHT_CALCULATE_SHADOWS",
       "_NORMALMAP"
     ],
     "uniforms": [
-      {
-        "name": "INV_PI",
-        "type": "float",
-        "widget": "Float",
-        "srgb": false
-      },
       {
         "name": "_AdjustShadowBias",
         "type": "bool",
@@ -280,14 +276,11 @@
         "type": "vec4",
         "widget": "Vector",
         "srgb": false
-      },
-      {
-        "name": "unity_WorldToObject",
-        "type": "mat4",
-        "widget": "Float",
-        "srgb": false
       }
-    ]
+    ],
+    "hostParameters": {
+      "ao_intensity": 1
+    }
   },
   "inputs": [
     {
@@ -301,6 +294,7 @@
       "Label": "反照率(线性化后的漫反射基色)",
       "Declaration": "//: param auto channel_basecolor\nuniform SamplerSparse basecolor_tex;",
       "Getter": "ruriSparseColor(basecolor_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BaseMap",
@@ -320,6 +314,7 @@
       "Label": "不透明度 [0,1]",
       "Declaration": "//: param auto channel_opacity\nuniform SamplerSparse opacity_tex;",
       "Getter": "ruriSparseScalar(opacity_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BaseMap",
@@ -344,6 +339,7 @@
       "Label": "Blend Tex",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BlendTex",
@@ -362,7 +358,8 @@
       "Absent": [],
       "Label": "切空间法线(已解包的三分量单位向量)",
       "Declaration": "",
-      "Getter": "ruriSparseNormal(normal_texture, {coord}, {absent})",
+      "Getter": "ruriBakedNormal({coord}, {absent})",
+      "MeshMap": "Normal",
       "Sources": [
         {
           "Source": "_BumpMap",
@@ -381,7 +378,8 @@
       "Absent": [],
       "Label": "自发光辐射色",
       "Declaration": "",
-      "Getter": "ruriSparseColor(emissive_tex, {coord}, {absent})",
+      "Getter": "emissive_intensity * ruriSparseColor(emissive_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_EmissionMap",
@@ -401,6 +399,7 @@
       "Label": "自发光强度遮罩 [0,1](逐像素选哪里发光/呼吸)",
       "Declaration": "//: param auto channel_user1\nuniform SamplerSparse slot_user1_tex;",
       "Getter": "ruriSparseScalar(slot_user1_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_EmissionMap",
@@ -425,6 +424,7 @@
       "Label": "MainTex",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_MainTex",
@@ -444,6 +444,7 @@
       "Label": "粗糙度 [0,1] = 1 - 光滑度",
       "Declaration": "//: param auto channel_roughness\nuniform SamplerSparse roughness_tex;",
       "Getter": "ruriSparseScalar(roughness_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_RMOSMap",
@@ -463,6 +464,7 @@
       "Label": "金属度 [0,1]",
       "Declaration": "//: param auto channel_metallic\nuniform SamplerSparse metallic_tex;",
       "Getter": "ruriSparseScalar(metallic_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_RMOSMap",
@@ -481,7 +483,8 @@
       "Absent": [],
       "Label": "环境光遮蔽 [0,1](1 = 无遮蔽)",
       "Declaration": "",
-      "Getter": "ruriSparseScalar(ao_tex, {coord}, {absent})",
+      "Getter": "ruriBakedOcclusion({coord}, {absent})",
+      "MeshMap": "AO",
       "Sources": [
         {
           "Source": "_RMOSMap",
@@ -501,6 +504,7 @@
       "Label": "高光强度系数 [0,1](非金属 F0 的缩放)",
       "Declaration": "//: param auto channel_specularlevel\nuniform SamplerSparse specularlevel_tex;",
       "Getter": "ruriSparseScalar(specularlevel_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_RMOSMap",
@@ -525,6 +529,7 @@
       "Label": "RMO Map (RGB)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_RMOTex",
@@ -549,6 +554,7 @@
       "Label": "Diffuse Ramp Map",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_RampMap",
@@ -573,6 +579,7 @@
       "Label": "Specular Map",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_Specularmap",
@@ -595,6 +602,7 @@
       "Label": "_BumpMap 余量(ba)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BumpMap",
@@ -889,13 +897,12 @@
     "能力 AdditionalLightCount(GetAdditionalLightsCount/0):宿主无兑现 → 缺席值 0(Identity)",
     "能力 AdditionalLight(GetAdditionalLight/3):宿主无兑现 → 缺席值 ruriZeroLight()(Identity)",
     "能力 AdditionalLightKind(GirlsFrontline_AdditionalLightKind/1):宿主无兑现 → 缺席值 0.0(Identity)",
-    "uniform INV_PI:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
+    "能力 MultiplyFrame(WriteMultiplyFrame/2):宿主兑现 = ruriTransparentFrame(factor, coverage)",
     "uniform _BaseMap_ST:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _MainLightLayerMask:uint 引擎位(SP 面板不认 uint、.mat 无 uint 覆写链)→ const 初始化器真值",
     "uniform _MainLightOcclusionProbes:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _RuriOutlineShellGate:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform lightIndex:uint 引擎位(SP 面板不认 uint、.mat 无 uint 覆写链)→ const 初始化器真值",
-    "uniform unity_SpecCube0_HDR:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
-    "uniform unity_WorldToObject:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)"
+    "uniform unity_SpecCube0_HDR:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)"
   ]
 }

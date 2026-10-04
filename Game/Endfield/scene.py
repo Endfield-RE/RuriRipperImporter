@@ -284,7 +284,7 @@ def _discover(context, arguments):
     """Read the selection's placements and price it -- what it resolves to in CABs
     is the number that says whether the import fits in memory."""
     state = state_of(context)
-    options = app_browser.as_options(app_browser.state_of(context), scene=True)
+    options = app_browser.as_options(app_browser.state_of(context))
     rect, map_name = _rect(state), _map_name(state)
     if rect is None or not map_name:
         state.status = "Nothing selected."
@@ -304,7 +304,7 @@ def _import(context, arguments):
     selection has moved on since."""
     state = state_of(context)
     browser = app_browser.state_of(context)
-    options = app_browser.as_options(browser, scene=True)
+    options = app_browser.as_options(browser)
     rect, map_name = _rect(state), _map_name(state)
     if rect is None or not map_name:
         state.status = "Nothing selected."
@@ -323,57 +323,90 @@ def _import(context, arguments):
     host = host_port.current()
     if state.reset_scene and host_port.SceneGraph in host.capabilities:
         host.clear_scene(context)
-    # Everything a level lights with is the environment its volumes put the viewer under, the
-    # way the game resolves it around its camera: wherever the document is looked at from.
     states = [state_id]
-    anchor = host.source_view_position(context) if host_port.SceneGraph in host.capabilities else None
     notes = []
-    if host_port.SceneGraph in host.capabilities and anchor is None:
-        notes.append("nothing to look at the level from, so none of its lighting is stood up")
-    # The level's own sky and main light go up before anything that samples them is built.
-    if anchor is not None:
+    anchor = None
+    if host_port.SceneGraph in host.capabilities:
+        # The renderer the stacks are verified under, not whatever the startup scene was saved with.
+        host.apply_renderer(context)
+        viewer = host.source_view_position(context)
+        anchor, from_view = datasets.scene_anchor(map_name, *rect, [str(state_id)], detail, viewer)
+        notes.append("lit from the view" if from_view else
+                     "lit from the middle of the level (the view stands outside it; Light From Here re-lights at the view)")
+        # The level's own sky and main light go up before anything that samples them is built.
         host.apply_environment(context, datasets.scene_environment(map_name, anchor, states))
     yield command.Mark(0.15)
     built = loading.load(context, [seed], options)
     notes.extend(built.warnings[:2])
+    if anchor is not None:
+        notes.extend(_stand_up_lighting(context, host, map_name, rect, anchor, states))
+    state.status = "{0}: {1} object(s). {2}".format(
+        _label(state), built.imported, "  ".join(notes))
+
+
+def _stand_up_lighting(context, host, map_name, rect, anchor, states):
+    """Everything the level lights with around ``anchor`` beyond its sky and main light. Returns the lines
+    to report."""
+    notes = []
     # Everything the level states for every material, as one state the stacks read live: its
     # globals (fog, the default sky SH), its baked irradiance rebuilt as the game's camera
     # clipmaps, the reflection probes the game's camera would use, the cloud shadow texture, the
-    # shadow ramp, the water state and what the render pipeline itself binds for every material.
-    if anchor is not None:
-        _written, unread = host.apply_level_resources(
-            context, datasets.scene_globals(map_name, anchor, states),
-            [datasets.scene_irradiance(map_name, anchor),
-             datasets.scene_reflection(map_name, anchor, states),
-             datasets.scene_cookies(map_name, states),
-             datasets.scene_cloud_shadow(map_name, anchor, states),
-             datasets.scene_shadow_ramp(map_name, anchor, states),
-             datasets.scene_water(map_name, anchor, states),
-             datasets.render_pipeline(),
-             datasets.scene_decals(map_name, rect, states)])
-        if unread:
-            notes.append("{0} level resource(s) no shading stack reads".format(len(unread)))
-        # Its deferred decals, handed to the objects their boxes reach (the stacks apply them in
-        # the material, where the game projects them into its GBuffer).
-        notes.extend(host.apply_box_lists(context, datasets.scene_decal_boxes(map_name, rect, states),
-                                          datasets.DECAL_RANGE, datasets.DECAL_LISTS))
-        # Its reflection probes, each object walking only the slots whose boxes can reach it (the game
-        # bins them per pixel before shading).
-        notes.extend(host.apply_box_lists(context, datasets.scene_reflection_boxes(map_name, anchor, states),
-                                          datasets.PROBE_RANGE, datasets.PROBE_LISTS))
-        # The level's volumetric fog, integrated by the host the way the game integrates it.
-        medium = datasets.scene_medium(map_name, anchor, states)
-        if medium is not None:
-            notes.extend(host.apply_medium(context, medium))
+    # shadow ramp, the water state, the deferred decals, the water proxies its wetness pass draws and what
+    # the render pipeline itself binds for every material.
+    _written, unread = host.apply_level_resources(
+        context, datasets.scene_globals(map_name, anchor, states),
+        [datasets.scene_irradiance(map_name, anchor),
+         datasets.scene_reflection(map_name, anchor, states),
+         datasets.scene_cookies(map_name, states),
+         datasets.scene_cloud_shadow(map_name, anchor, states),
+         datasets.scene_shadow_ramp(map_name, anchor, states),
+         datasets.scene_water(map_name, rect, anchor, states),
+         datasets.render_pipeline(),
+         datasets.scene_decals(map_name, rect, states),
+         datasets.scene_water_wetness(map_name, rect, states)])
+    if unread:
+        notes.append("{0} level resource(s) no shading stack reads".format(len(unread)))
+    # Its deferred decals, handed to the objects their boxes reach (the stacks apply them in
+    # the material, where the game projects them into its GBuffer).
+    notes.extend(host.apply_box_lists(context, datasets.scene_decal_boxes(map_name, rect, states),
+                                      datasets.DECAL_RANGE, datasets.DECAL_LISTS))
+    # Its reflection probes, each object walking only the slots whose boxes can reach it (the game
+    # bins them per pixel before shading).
+    notes.extend(host.apply_box_lists(context, datasets.scene_reflection_boxes(map_name, anchor, states),
+                                      datasets.PROBE_RANGE, datasets.PROBE_LISTS))
+    # Its water proxies' wetness, each object walking only the proxy triangles whose wetness band
+    # can reach it (the game rasterises the proxies into a screen mask before lighting).
+    notes.extend(host.apply_box_lists(context, datasets.scene_water_wetness_boxes(map_name, rect, states),
+                                      datasets.WETNESS_RANGE, datasets.WETNESS_LISTS))
+    # The level's volumetric fog, integrated by the host the way the game integrates it.
+    medium = datasets.scene_medium(map_name, anchor, states)
+    if medium is not None:
+        notes.extend(host.apply_medium(context, medium))
     # The level states its own colour grading; a host with a display chain takes it.
-    grading = datasets.scene_grading(map_name, anchor, states) if anchor is not None else None
+    grading = datasets.scene_grading(map_name, anchor, states)
     if grading is not None and host_port.Compositor in host.capabilities:
         host.apply_post_inputs(context, grading["inputs"])
         if grading["automatic_exposure"]:
             notes.append("this volume adapts its exposure automatically; only its "
                          "compensation is applied")
-    state.status = "{0}: {1} object(s). {2}".format(
-        _label(state), built.imported, "  ".join(notes))
+    return notes
+
+
+def _relight(context, arguments):
+    """Resolve the imported level's camera-centred state again around where the document is looked at from
+    now -- the game re-resolves it as its camera moves; here the user moves the view and asks."""
+    state = state_of(context)
+    rect, map_name = _rect(state), _map_name(state)
+    host = host_port.current()
+    anchor = host.source_view_position(context)
+    if rect is None or not map_name or anchor is None:
+        state.status = "Nothing to re-light: import a level and look at it first."
+        return
+    states = [int(state.scene_state_id or 0)]
+    yield command.Mark(0.1)
+    host.apply_environment(context, datasets.scene_environment(map_name, anchor, states))
+    notes = _stand_up_lighting(context, host, map_name, rect, anchor, states)
+    state.status = "{0}: lit from the view. {1}".format(_label(state), "  ".join(notes))
 
 
 def _label(state):
@@ -395,6 +428,11 @@ IMPORT = command.COMMANDS.define(
     description="Resolve the selection's dependency closure and import it",
     icon="IMPORT", poll=_has_selection, steps=True, status_state=STATE,
     failure="Scene import failed")
+RELIGHT = command.COMMANDS.define(
+    "ruri.endfield_scene_relight", "Light From Here", _relight,
+    description="Resolve the level's sky, irradiance, probes, fog and grading again around the current view",
+    icon="LIGHT_SUN", requires=host_port.SceneGraph, poll=_has_selection, steps=True, status_state=STATE,
+    failure="Re-lighting the level failed")
 
 
 # ---------------------------------------------------------------------------
@@ -467,11 +505,8 @@ def _draw_actions(layout, context, state, enabled):
     options = layout.column(align=True)
     options.enabled = enabled
     options.prop(state, "scene_state_id")
-    # 与浏览器同一份导入选项 —— 场景导入读的也是它。一个场景窗口是几百上千张材质,
-    # 所以第二个记忆值(Game Shaders)画在按 Import 的地方,别让人跑去另一个 tab 找。
+    # 与浏览器同一份导入选项 —— 场景导入读的也是它。
     app_browser.draw_import_options(options, context)
-    if host_port.NodeMaterials in host_port.current().capabilities:
-        options.prop(app_browser.state_of(context), "scene_shaders")
     options.operator(DISCOVER.id, icon="VIEWZOOM")
     _draw_estimate(layout, state)
     tail = layout.column(align=True)
@@ -479,6 +514,7 @@ def _draw_actions(layout, context, state, enabled):
     if host_port.SceneGraph in host_port.current().capabilities:
         tail.prop(state, "reset_scene")
     tail.operator(IMPORT.id, icon="IMPORT")
+    tail.operator(RELIGHT.id, icon="LIGHT_SUN")
 
 
 def _draw_self_contained(layout, context, state):

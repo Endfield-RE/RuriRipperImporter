@@ -2,6 +2,7 @@
   "host": "Substance",
   "family": "Endfield",
   "stack": "ruri_character_uber_endfield",
+  "identity": "d40e1d66c34c4c54",
   "shader": "Ruri_Endfield_Uber.glsl",
   "generated": "Ruri.RenderPipelines.Generator — 勿手改;改真源后重跑 codegen",
   "operations": [
@@ -78,6 +79,8 @@
       }
     ],
     "keywords": [
+      "DISABLE_DRAW_UNDER_HAIR",
+      "MAIN_LIGHT_CALCULATE_SHADOWS",
       "_NORMALMAP"
     ],
     "uniforms": [
@@ -922,6 +925,12 @@
         "srgb": false
       },
       {
+        "name": "_RuriCharacterLightFollow",
+        "type": "vec4",
+        "widget": "Vector",
+        "srgb": false
+      },
+      {
         "name": "_RuriOutlineShellGate",
         "type": "bool",
         "widget": "Toggle",
@@ -1329,7 +1338,10 @@
         "widget": "Vector",
         "srgb": false
       }
-    ]
+    ],
+    "hostParameters": {
+      "ao_intensity": 1
+    }
   },
   "inputs": [
     {
@@ -1343,6 +1355,7 @@
       "Label": "反照率(线性化后的漫反射基色)",
       "Declaration": "//: param auto channel_basecolor\nuniform SamplerSparse basecolor_tex;",
       "Getter": "ruriSparseColor(basecolor_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BaseMap",
@@ -1362,6 +1375,7 @@
       "Label": "不透明度 [0,1]",
       "Declaration": "//: param auto channel_opacity\nuniform SamplerSparse opacity_tex;",
       "Getter": "ruriSparseScalar(opacity_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BaseMap",
@@ -1386,6 +1400,7 @@
       "Label": "Blend Tex",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BlendTex",
@@ -1404,7 +1419,8 @@
       "Absent": [],
       "Label": "切空间法线(已解包的三分量单位向量)",
       "Declaration": "",
-      "Getter": "ruriSparseNormal(normal_texture, {coord}, {absent})",
+      "Getter": "ruriBakedNormal({coord}, {absent})",
+      "MeshMap": "Normal",
       "Sources": [
         {
           "Source": "_BumpMap",
@@ -1429,6 +1445,7 @@
       "Label": "清漆层遮罩 [0,1]",
       "Declaration": "//: param auto channel_user1\nuniform SamplerSparse slot_user1_tex;",
       "Getter": "ruriSparseScalar(slot_user1_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_ClearCoatMask",
@@ -1453,6 +1470,7 @@
       "Label": "Diffuse Ramp",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_DiffRampMap",
@@ -1477,6 +1495,7 @@
       "Label": "Disturb Tex 1",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_DisturbTex1",
@@ -1495,7 +1514,8 @@
       "Absent": [],
       "Label": "自发光辐射色",
       "Declaration": "",
-      "Getter": "ruriSparseColor(emissive_tex, {coord}, {absent})",
+      "Getter": "emissive_intensity * ruriSparseColor(emissive_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_EmissionMap",
@@ -1515,6 +1535,7 @@
       "Label": "自发光强度遮罩 [0,1](逐像素选哪里发光/呼吸)",
       "Declaration": "//: param auto channel_user2\nuniform SamplerSparse slot_user2_tex;",
       "Getter": "ruriSparseScalar(slot_user2_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_EmissionMap",
@@ -1539,6 +1560,7 @@
       "Label": "Emotion Map",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_EmotionMap",
@@ -1563,6 +1585,7 @@
       "Label": "毛发方向(RG)疏密(B)长短(A)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_FurDirMap",
@@ -1587,6 +1610,7 @@
       "Label": "皮毛染色",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_FurDyeMap",
@@ -1611,6 +1635,7 @@
       "Label": "Fur Noise",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_FurMap",
@@ -1635,6 +1660,7 @@
       "Label": "HighlightMap",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_HighlightMap",
@@ -1659,6 +1685,7 @@
       "Label": "Line Map",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_LineMap",
@@ -1683,6 +1710,7 @@
       "Label": "Main Tex",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_MainTex",
@@ -1707,6 +1735,7 @@
       "Label": "Mask Tex",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_MaskTex",
@@ -1731,6 +1760,7 @@
       "Label": "Matcap",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_MatcapTex",
@@ -1750,6 +1780,7 @@
       "Label": "金属度 [0,1]",
       "Declaration": "//: param auto channel_metallic\nuniform SamplerSparse metallic_tex;",
       "Getter": "ruriSparseScalar(metallic_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1774,6 +1805,7 @@
       "Label": "高光强度系数 [0,1](非金属 F0 的缩放)",
       "Declaration": "//: param auto channel_specularlevel\nuniform SamplerSparse specularlevel_tex;",
       "Getter": "ruriSparseScalar(specularlevel_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1797,7 +1829,8 @@
       "Absent": [],
       "Label": "环境光遮蔽 [0,1](1 = 无遮蔽)",
       "Declaration": "",
-      "Getter": "ruriSparseScalar(ao_tex, {coord}, {absent})",
+      "Getter": "ruriBakedOcclusion({coord}, {absent})",
+      "MeshMap": "AO",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1822,6 +1855,7 @@
       "Label": "粗糙度 [0,1] = 1 - 光滑度",
       "Declaration": "//: param auto channel_roughness\nuniform SamplerSparse roughness_tex;",
       "Getter": "ruriSparseScalar(roughness_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_MetallicGlossMap",
@@ -1851,6 +1885,7 @@
       "Label": "法线图",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_NormalMap",
@@ -1860,16 +1895,17 @@
       ]
     },
     {
-      "Kind": "NativeChannel",
-      "Id": "height",
+      "Kind": "OverflowChannel",
+      "Id": "user3",
       "Semantic": "Height",
       "Components": 1,
       "Encoding": "Linear",
       "Format": "L8",
       "Absent": [],
       "Label": "视差/位移高度 [0,1]",
-      "Declaration": "//: param auto channel_height\nuniform SamplerSparse height_tex;",
-      "Getter": "ruriSparseScalar(height_tex, {coord}, {absent})",
+      "Declaration": "//: param auto channel_user3\nuniform SamplerSparse slot_user3_tex;",
+      "Getter": "ruriSparseScalar(slot_user3_tex, {coord}, {absent})",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_ParallaxTex",
@@ -1894,6 +1930,7 @@
       "Label": "SDF Lightmap",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_SDFLightmap",
@@ -1918,6 +1955,7 @@
       "Label": "RimMask/SDFMask/FlatSHMask",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_SDFMask",
@@ -1942,6 +1980,7 @@
       "Label": "Shadow Color Lut",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_ShadowLutTex",
@@ -1966,6 +2005,7 @@
       "Label": "丝袜遮罩",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_SilkStockingsMask",
@@ -1990,6 +2030,7 @@
       "Label": "Specular Ramp",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_SpecRampMap",
@@ -2014,6 +2055,7 @@
       "Label": "Stroke Map(R:anisotropy G:specular offset)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_StrokeMap",
@@ -2038,6 +2080,7 @@
       "Label": "VFX Special Blend Tex",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_VFXSpecialBlendTex",
@@ -2062,6 +2105,7 @@
       "Label": "VFX Special Main Tex",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_VFXSpecialMainTex",
@@ -2084,6 +2128,7 @@
       "Label": "_BumpMap 余量(ba)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_BumpMap",
@@ -2107,6 +2152,7 @@
       "Label": "_ClearCoatMask 余量(gba)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_ClearCoatMask",
@@ -2130,6 +2176,7 @@
       "Label": "_ParallaxTex 余量(gba)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_ParallaxTex",
@@ -2152,6 +2199,7 @@
       "Label": "_SplitNormalMap 余量(ba)",
       "Declaration": "",
       "Getter": "",
+      "MeshMap": "",
       "Sources": [
         {
           "Source": "_SplitNormalMap",
@@ -2778,7 +2826,7 @@
       "Source": "_ParallaxTex",
       "Lanes": [
         {
-          "Input": "height",
+          "Input": "user3",
           "Component": 0,
           "Operation": "",
           "Constant": 0,
@@ -3152,6 +3200,7 @@
   "notes": [
     "外溢分配:ClearCoatMask → user1(按语义名字典序,两侧独立算出同一结果)",
     "外溢分配:EmissionMask → user2(按语义名字典序,两侧独立算出同一结果)",
+    "外溢分配:Height → user3(按语义名字典序,两侧独立算出同一结果)",
     "_BumpMap:打包覆盖之外的 ba 位 → 余量原样槽位 _BumpMap_ba",
     "_ClearCoatMask:打包覆盖之外的 gba 位 → 余量原样槽位 _ClearCoatMask_gba",
     "_ParallaxTex:打包覆盖之外的 gba 位 → 余量原样槽位 _ParallaxTex_gba",
@@ -3161,6 +3210,8 @@
     "能力 ShadowAttenuation(MainLightRealtimeShadow/1):宿主无兑现 → 缺席值 1.0(Identity)",
     "能力 ScreenSpaceShadowMask(LoadScreenSpaceShadowMask/2):宿主无兑现 → 缺席值 float2(1.0, 1.0)(Identity)",
     "能力 ScreenDepth(SampleSceneDepth/1):宿主无兑现 → 缺席值 0.0(Declared)",
+    "能力 ScreenSurfaceClass(LoadScreenSurfaceClass/1):宿主无兑现 → 缺席值 0.0(Declared)",
+    "能力 MultiplyFrame(WriteMultiplyFrame/2):宿主兑现 = ruriTransparentFrame(factor, coverage)",
     "uniform _BaseMap_ST:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _BlendTex_ST:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",
     "uniform _DirectionalShadowParams:无标签但有初始化器缺省 → 注解参数(组 R 引擎态,缺省同 Blender 腿)",

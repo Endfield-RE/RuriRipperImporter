@@ -149,11 +149,12 @@ class GameModule:
 
     __slots__ = ("game_name", "label", "tabs", "sections", "face_retarget",
                  "secondary_motion", "shadow_proxies", "engine", "settings_schema",
-                 "shaders", "all_shaders", "directory", "package", "_register", "_unregister")
+                 "shaders", "all_shaders", "directory", "package", "_look", "_register",
+                 "_unregister")
 
     def __init__(self, game_name, label, tabs, register, unregister, sections=(),
                  face_retarget=None, secondary_motion=None, shadow_proxies=False, engine=None,
-                 settings_schema=None, shaders=None, all_shaders=None):
+                 settings_schema=None, shaders=None, all_shaders=None, look=None):
         # The Unity productName this game's player builds under -- the install's own
         # word for itself, and the upstream decoder's GameName. Nothing translates it.
         self.game_name = game_name
@@ -218,6 +219,13 @@ class GameModule:
         #
         # The callable takes (output) and returns one row per archive written.
         self.all_shaders = all_shaders
+        # What this game says about how its frame is finally graded, drawn at the head of the
+        # Look tab every install has. A game's post-processing objects and the algorithm that
+        # turns them into a grade are its own -- no two titles share either -- so the tab is the
+        # kernel's and what is in it is the game's. ``("module", "function")`` names a draw in
+        # one of this game's SECTIONS, imported on first use and absent wherever that section's
+        # host capability is.
+        self._look = look
         self.tabs = tuple(tabs)
         # The parts those tabs are composed of, each with the capability it needs
         # (see GameSection). Stated here so the same join that proves no TAB is
@@ -243,6 +251,17 @@ class GameModule:
             tab.owner = self
         for one in self.sections:
             one.owner = self
+
+    def look(self):
+        """This game's own Look body, or None when it states none or its section is not one this
+        host can offer."""
+        if self._look is None or callable(self._look):
+            return self._look
+        module_name, function_name = self._look
+        if not section(self.sections, module_name).available:
+            return None
+        module = importlib.import_module("{0}.{1}".format(self.package, module_name))
+        return getattr(module, function_name)
 
     def register(self):
         self._register()
@@ -359,6 +378,12 @@ def all_shaders_of(game_name, engine=""):
     reader. The same contribution point as shaders_of with nothing selected to narrow it."""
     game = module_for(game_name, engine)
     return game.all_shaders if game is not None else None
+
+
+def look_of(game_name, engine=""):
+    """The Look body ONE game states about how its frame is graded, or None."""
+    game = module_for(game_name, engine)
+    return game.look() if game is not None else None
 
 
 def tabs_of(game_name, engine=""):

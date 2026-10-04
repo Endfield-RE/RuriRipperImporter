@@ -111,10 +111,11 @@ vec2 ruriUvClamp(sampler2D t, vec2 uv) {
 //----------------------------------------------------------------------region 面板参数(生成)
 //: param custom { "default": 0, "label": "GirlsFrontline Part", "widget": "combobox", "values": { "0 Standard": 0, "1 Face": 1, "2 Eyes": 2, "3 EyeBlendAdd": 3, "4 EyeBlendMultiply": 4 }, "group": "0 部位" }
 uniform_specialization int _CharaPartID;
+//: param custom { "default": false, "label": "MAIN_LIGHT_CALCULATE_SHADOWS", "group": "1 变体开关" }
+uniform_specialization bool MAIN_LIGHT_CALCULATE_SHADOWS;
 //: param custom { "default": false, "label": "_NORMALMAP", "group": "1 变体开关" }
 uniform_specialization bool _NORMALMAP;
-//: param custom { "default": 0.31830987, "label": "INV_PI", "group": "R 引擎态" }
-uniform float INV_PI;
+const float INV_PI = 0.31830987;
 //: param custom { "default": false, "label": "Adjust Shadow Bias", "group": "Stocking" }
 uniform bool _AdjustShadowBias;
 //: param custom { "default": 0, "label": "Anisotropic GGX", "min": -1, "max": 1, "group": "Stocking" }
@@ -191,8 +192,6 @@ uniform bool _UseStockingFalloff;
 const uint lightIndex = uint(0);
 //: param custom { "default": [1, 1, 0, 0], "label": "unity_SpecCube0_HDR", "group": "R 引擎态" }
 uniform vec4 unity_SpecCube0_HDR;
-//: param custom { "default": 0, "label": "unity_WorldToObject", "group": "R 引擎态" }
-uniform mat4 unity_WorldToObject;
 //----------------------------------------------------------------------endregion
 
 //----------------------------------------------------------------------region 宿主库
@@ -205,8 +204,7 @@ import lib-sparse.glsl
 //----------------------------------------------------------------------endregion
 
 //: state cull_face off
-//: state blend over { "enable": "input._CharaPartID != 4" }
-//: state blend multiply { "enable": "input._CharaPartID == 4" }
+//: state blend over
 
 //: param auto camera_view_matrix
 uniform mat4 uniform_camera_view_matrix;
@@ -616,6 +614,7 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 //----------------------------------------------------------------------endregion
 
 //----------------------------------------------------------------------region 引擎态兑现(配方)
+#define UNITY_MATRIX_I_M (inverse(ruriObjectToWorld()))
 #define UNITY_MATRIX_I_V (inverse(uniform_camera_view_matrix))
 #define UNITY_MATRIX_M (ruriObjectToWorld())
 #define UNITY_MATRIX_V (uniform_camera_view_matrix)
@@ -625,11 +624,11 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 #define _WorldSpaceCameraPos (camera_pos)
 #define unity_LightData (vec4(0.0, 0.0, 1.0, 0.0))
 #define unity_OrthoParams (vec4(0.0, 0.0, 0.0, 0.0))
+#define unity_WorldToObject (UNITY_MATRIX_I_M)
 #define unity_WorldTransformParams (vec4(0.0, 0.0, 0.0, 1.0))
 //----------------------------------------------------------------------endregion
 
-//----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
-// 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
+//----------------------------------------------------------------------region 宿主原生取值(通道/烘焙网格贴图/环境预滤波)
 vec3 ruriSparseColor(SamplerSparse smp, SparseCoord coord, vec3 absent)
 {
     vec4 s = textureSparse(smp, coord);
@@ -642,12 +641,51 @@ float ruriSparseScalar(SamplerSparse smp, SparseCoord coord, float absent)
     return s.r + absent * (1.0 - s.g);
 }
 
-vec3 ruriSparseNormal(SamplerSparse smp, SparseCoord coord, vec3 absent)
+float ruriBakedOcclusion(SparseCoord coord, float absent)
 {
-    vec4 s = textureSparse(smp, coord);
-    return s.a == 0.0 ? absent : normalUnpack(s);
+    return (base_ao_tex.is_set || ao_tex.is_set) ? getAO(coord, true, false) : absent;
 }
 
+vec3 ruriBakedNormal(SparseCoord coord, vec3 absent)
+{
+    return (base_normal_texture.is_set || normal_texture.is_set || height_texture.is_set) ? getTSNormal(coord) : absent;
+}
+
+vec3 ruriPrefilteredEnvironment(vec3 directionWS, float perceptualRoughness)
+{
+    vec3 reflection = normalize(worldToEnvSpace(directionWS));
+    if (perceptualRoughness < 0.01)
+        return envSample(reflection, 0.0);
+    vec3 tangent = normalize(cross(abs(reflection.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), reflection));
+    vec3 bitangent = cross(reflection, tangent);
+    vec3 radiance = vec3(0.0);
+    float weight = 0.0;
+    for (int i = 0; i < nbSamples; ++i)
+    {
+        vec3 halfway = importanceSampleGGX(fibonacci2DDitheredTemporal(i, nbSamples), tangent, bitangent, reflection, perceptualRoughness);
+        vec3 incoming = -reflect(reflection, halfway);
+        float ndl = dot(reflection, incoming);
+        if (ndl > 0.0)
+        {
+            float ndh = max(1e-8, dot(reflection, halfway));
+            radiance += envSample(incoming, computeLOD(incoming, probabilityGGX(ndh, ndh, perceptualRoughness))) * ndl;
+            weight += ndl;
+        }
+    }
+    return weight > 0.0 ? radiance / weight : envSample(reflection, 0.0);
+}
+
+vec4 ruriTransparentFrame(vec3 factor, float coverage)
+{
+    vec3 clamped = clamp(factor, 0.0, 1.0);
+    float opacity = 1.0 - min(min(clamped.r, clamped.g), clamped.b);
+    vec3 color = opacity > 1e-5 ? (clamped - (1.0 - opacity)) / opacity : vec3(0.0);
+    return vec4(color, opacity);
+}
+//----------------------------------------------------------------------endregion
+
+//----------------------------------------------------------------------region 投影读函数(源纹理 → 宿主输入重建;与清单同源)
+// 宿主可绘制通道按网格参数化取值,uv 实参不参与(源侧 ST 平铺对这些通道无效 —— 清单已披露)。
 float4 ruriRead_BaseMap(float2 uv) {
     vec3 ruriInput0 = ruriSparseColor(basecolor_tex, ruriSparseCoord, vec3(1.0, 1.0, 1.0));
     float ruriInput1 = ruriSparseScalar(opacity_tex, ruriSparseCoord, 1.0);
@@ -655,7 +693,7 @@ float4 ruriRead_BaseMap(float2 uv) {
 }
 
 float4 ruriRead_BumpMap(float2 uv) {
-    vec3 ruriInput0 = ruriSparseNormal(normal_texture, ruriSparseCoord, vec3(0.0, 0.0, 0.0));
+    vec3 ruriInput0 = ruriBakedNormal(ruriSparseCoord, vec3(0.0, 0.0, 0.0));
     vec4 ruriInput1 = texture(_BumpMap_ba, uv);
     return float4((ruriInput0.x * 0.5 + 0.5), (ruriInput0.y * 0.5 + 0.5), ruriInput1.x, ruriInput1.y);
 }
@@ -663,12 +701,20 @@ float4 ruriRead_BumpMap(float2 uv) {
 float4 ruriRead_RMOSMap(float2 uv) {
     float ruriInput0 = ruriSparseScalar(roughness_tex, ruriSparseCoord, 0.0);
     float ruriInput1 = ruriSparseScalar(metallic_tex, ruriSparseCoord, 0.0);
-    float ruriInput2 = ruriSparseScalar(ao_tex, ruriSparseCoord, 0.0);
+    float ruriInput2 = ruriBakedOcclusion(ruriSparseCoord, 0.0);
     float ruriInput3 = ruriSparseScalar(specularlevel_tex, ruriSparseCoord, 0.0);
     return float4(ruriInput0, ruriInput1, ruriInput2, ruriInput3);
 }
 
 //----------------------------------------------------------------------endregion
+
+// 环境 cube 是引擎烘的反射探针:第 m 层按 URP 的 <c>MipmapLevelToPerceptualRoughness</c> 预滤波
+// (ImageBasedLighting.hlsl,UNITY_SPECCUBE_LOD_STEPS = 6,共 7 层卷积)。真源按 <c>roughness·6</c> 取层,
+// 读到的就是这一层的预滤波。
+float CubeMipToPerceptualRoughness_GirlsFrontline(float mip)
+{
+    return saturate(1.7 / 1.4 - sqrt(2.89 / 1.96 - (2.8 / 1.96) * saturate(mip / 6.0)));
+}
 
 vec3 UnpackNormalScale(vec4 packedNormal, float bumpScale)
 {
@@ -810,9 +856,10 @@ void RURI_INIT_COMMON(CharaVaryings input_, out RuriData outRuriData)
 void RURI_INIT_COMMON(SceneVaryings input_, out RuriData outRuriData)
 {
     outRuriData = ruriZeroRuriData();
-    outRuriData.alpha = 1.0;
-    outRuriData.albedo = half3(1.0, 1.0, 1.0);
-    outRuriData.normalTS = float3(0.0, 0.0, 1.0);
+    vec4 albedoAlpha = half4(ruriRead_BaseMap(input_.uv));
+    outRuriData.alpha = albedoAlpha.a;
+    outRuriData.albedo = albedoAlpha.rgb;
+    outRuriData.normalTS = SampleNormal_BumpMap(input_.uv, _BumpScale);
     outRuriData.positionCS = input_.positionCS;
     outRuriData.positionWS = input_.positionWS;
     outRuriData.normalWS = ResolveNormalWS(outRuriData.normalTS, input_.positionWS, input_.normalWS, input_.tangentWS, input_.uv);
@@ -823,7 +870,14 @@ void RURI_INIT_COMMON(SceneVaryings input_, out RuriData outRuriData)
 
 void RURI_SHADOW_COORD(inout RuriData outRuriData)
 {
-    outRuriData.shadowCoord = vec4(0.0);
+    if (!(MAIN_LIGHT_CALCULATE_SHADOWS))
+    {
+        outRuriData.shadowCoord = float4(0.0, 0.0, 0.0, 0.0);
+    }
+    else
+    {
+        outRuriData.shadowCoord = vec4(0.0);
+    }
 }
 
 void InitializeCharaData(CharaVaryings input_, out RuriData outRuriData)
@@ -1049,7 +1103,7 @@ vec3 GirlsFrontline_EnvironmentSpecular(vec3 specularColor, float roughness, flo
         offset = textureLod(_RampMap, ruriUvClamp(_RampMap, float2(environmentBRDF.y * saturate(dot(normalWS, lightSide)), 0.625)), 0.0).x;
     }
     vec3 reflectDirection = reflect(-viewDirectionWS, normalWS);
-    vec4 encodedIrradiance = vec4(0.2158605, 0.2158605, 0.2158605, 0.5);
+    vec4 encodedIrradiance = vec4(ruriPrefilteredEnvironment(reflectDirection, CubeMipToPerceptualRoughness_GirlsFrontline(roughness * 6.0)), 1.0);
     vec3 probeColor = DecodeHDREnvironment(encodedIrradiance, unity_SpecCube0_HDR);
     return probeColor * (specularColor * environmentBRDF.x + offset);
 }
@@ -1158,19 +1212,24 @@ void GirlsFrontline_EyeBlendAdd(inout RuriData ruriData, CharaVaryings input_, i
     outputData.globalIllumination = float4(color, mask.w * _MainColor.w);
 }
 
+vec4 WriteMultiplyFrame(vec3 factor, float coverage) {
+    return ruriTransparentFrame(factor, coverage);
+}
+
 // b16(<c>Blend DstColor Zero</c>):<c>rgb = 1 + _SpecularIntensity · (_MainTex.rgb · _MainColor.rgb - 1)</c>,
-// 也就是把「乘进帧缓冲的因子」直接写出来 —— 这个部位的 <c>[StylePart]</c> 照抄了那行 <c>Blend</c>,
-// over 混合的宿主据此自己做等价分解。
+// 也就是「乘进帧缓冲的因子」;这个部位的 <c>[StylePart]</c> 照抄了那行 <c>Blend</c>,落帧交给宿主。
 void GirlsFrontline_EyeBlendMultiply(inout RuriData ruriData, CharaVaryings input_, inout RuriGBufferData outputData)
 {
     vec4 mask = ruriSampleSrgb(_MainTex, input_.uv);
     vec3 factor = 1.0 + _SpecularIntensity * (mask.xyz * _MainColor.xyz - 1.0);
+    vec4 frame = WriteMultiplyFrame(factor, ruriData.alpha);
+    ruriData.alpha = frame.w;
     outputData.baseColor = mask.xyz;
     outputData.roughness = ruriData.roughness;
     outputData.metallic = ruriData.metallic;
     outputData.specular = ruriData.specular;
     outputData.normalWS = input_.normalWS;
-    outputData.globalIllumination = float4(factor, 1.0);
+    outputData.globalIllumination = float4(frame.xyz, 1.0);
 }
 
 // b3024 第 137-177 行:法线图的 x 取 <c>r·a</c>、y 取 <c>1 - g</c>(绿通道朝下的约定),z 由单位长补出。

@@ -24,6 +24,7 @@ import os
 
 import bpy
 
+from . import linked_twins as _linked_twins
 from . import plugin_data as _plugin_data
 from ...Kernel import extensions
 
@@ -96,14 +97,16 @@ POST_STAGES = extensions.point(
     "blender.post_stages",
     "Whole-frame processing a shading stack installs onto the scene.")
 
-#: ``level_global_bases() -> {name: [default, ...]}``. Engine globals a stack
-#: reads LIVE from scene properties instead of baking them into its materials --
-#: per-level values such as fog -- each with the default its recipe declares. The
-#: stack's graph reads ``property + default``, so a property that was never
-#: written answers the default and a session with no level in it is unchanged.
+#: ``level_global_bases() -> {name: (statement, [default, ...])}``. Engine globals a
+#: stack reads LIVE from the level's world instead of baking them into its materials --
+#: per-level values such as fog -- each with the default its recipe declares and what
+#: states it: ``level_global`` (the level's environment phase) or ``volume_global`` (the
+#: volume stack the camera stands in -- post-processing switches, character lighting).
+#: The stack's graph reads ``property + default``, so a property that was never written
+#: answers the default and a session with no level in it is unchanged.
 LEVEL_GLOBALS = extensions.point(
     "blender.level_globals",
-    "Per-level engine globals a shading stack reads live from scene properties.")
+    "Per-level engine globals a shading stack reads live from the level's world.")
 
 #: ``level_image_layouts() -> {name: layout}``. The images a stack reads level
 #: state through, since the host's material nodes only sample 2D images: a 2D
@@ -449,6 +452,19 @@ def content(block):
     return _plugin_data.content(block)
 
 
+def twinned(material):
+    """Whether this session already draws a linked material through a compiled twin
+    (see :mod:`linked_twins`)."""
+    return _linked_twins.twinned(material)
+
+
+def adopt_twins(pairs):
+    """The door a generated stack hands the twins it compiled from linked materials'
+    records through, as (linked material, twin) pairs: every user draws the twin, and
+    every save keeps the file pointing at the library's material (see :mod:`linked_twins`)."""
+    return _linked_twins.adopt(pairs)
+
+
 def register_material_panel(panel):
     """A stack hands over its INTERFACE and its own read/write paths, not a panel:
     a session holds several stacks, and one panel each would stack N property
@@ -504,6 +520,7 @@ def rebuild_plugin_data(purge):
     together afterwards. Returns ``(dropped, compiled)``."""
     dropped = 0
     if purge:
+        _linked_twins.release()
         dropped = _plugin_data.purge() + sum(drop() for drop in PLUGIN_PURGES)
     compiled = []
     failures = []
@@ -515,6 +532,13 @@ def rebuild_plugin_data(purge):
     state = capability_state(bpy.context.scene)
     for material in compiled:
         material[CAPABILITY_STATE_PROPERTY] = state
+    declared = {name for provider in LEVEL_GLOBALS for name in provider()}
+    for scene in bpy.data.scenes:
+        kept = sorted(name for name in scene.keys() if name in declared)
+        if scene.library is None and kept:
+            failures.append("[material] scene {0} keeps a level's globals on itself ({1} of them, e.g. {2}): a level's "
+                            "globals, texel blocks and grading live on the level's world -- import the level "
+                            "again".format(scene.name, len(kept), kept[0]))
     if failures:
         raise RuntimeError("; ".join(failures))
     return dropped, len(compiled)
@@ -728,32 +752,59 @@ def apply_level_resources(scene, values, payloads):
     return written + filled, unclaimed + unread
 
 
+def level_world(scene):
+    """The world a level's shared state lives on: its engine globals, the texel blocks its stacks read
+    (bound under :data:`LEVEL_IMAGES_PROPERTY`) and the grading it states. The stacks read the globals
+    through view-layer attributes, which Blender looks up on the view layer, then the scene, then the
+    scene's world -- so every scene drawn through the level's world reads the same state: the level's own
+    file, and a shot that links the level's objects and world."""
+    if scene.world is None:
+        raise RuntimeError("[material] scene {0} has no world: a level's globals, texel blocks and grading "
+                           "live on the level's world".format(scene.name))
+    return scene.world
+
+
+#: The custom property on a level's world that holds the images its texel blocks were filled into, keyed by
+#: image name: the level's content, so the world is their user and they go wherever the world is linked.
+LEVEL_IMAGES_PROPERTY = "ruri_level_images"
+
+
 def _apply_level_globals(scene, values):
-    """Write one level's engine globals where the stacks read them live.
+    """Write one level's engine globals where the stacks read them live: on the level's world
+    (see :func:`level_world`).
 
     ``values`` is keyed by the engine's own global names, each the level's value in
-    the source's own convention. What lands on the scene is the DIFFERENCE from the
+    the source's own convention. What lands on the world is the DIFFERENCE from the
     stack's declared default, because the graph reads ``property + default`` and an
     unwritten property reads zero.
 
-    A stack that is handed some of its level globals but not all is refused: the
-    missing ones would silently stay at the recipe default and the picture would be
-    quietly wrong. A stack handed none of them is not this level's consumer (another
-    game's stack) and is left alone. Two stacks declaring different defaults for one
-    name cannot share a scene property, so that is refused too."""
+    Completeness is judged per statement: what one thing states (the level's phase, or
+    the volume stack the camera stands in) comes whole or not at all. A stack that is
+    handed some of one statement's globals but not all is refused: the missing ones would
+    silently stay at the recipe default and the picture would be quietly wrong. A stack
+    handed none of a statement's globals is not that statement's consumer here (another
+    game's stack, or a display stage that states its volumes and no level) and is left
+    alone. Two stacks declaring different defaults, or different statements, for one name
+    cannot share a property, so that is refused too."""
     bases = {}
+    statements = {}
     for provider in LEVEL_GLOBALS:
         declared = provider()
-        supplied = [name for name in declared if name in values]
-        if supplied and len(supplied) != len(declared):
-            raise KeyError("[material] a stack reads level globals {0}; {1} not supplied".format(
-                sorted(declared), sorted(name for name in declared if name not in values)))
-        for name, base in declared.items():
+        for statement in sorted({kind for kind, _ in declared.values()}):
+            named = sorted(name for name, (kind, _) in declared.items() if kind == statement)
+            supplied = [name for name in named if name in values]
+            if supplied and len(supplied) != len(named):
+                raise KeyError("[material] a stack reads {0} globals {1}; {2} not supplied".format(
+                    statement, named, sorted(name for name in named if name not in values)))
+        for name, (statement, base) in declared.items():
             known = bases.setdefault(name, list(base))
             if known != list(base):
                 raise ValueError("[material] level global {0} has two defaults: {1} and {2}".format(
                     name, known, list(base)))
-    written = []
+            if statements.setdefault(name, statement) != statement:
+                raise ValueError("[material] level global {0} is stated by both {1} and {2}".format(
+                    name, statements[name], statement))
+    rows = {}
     for name, value in values.items():
         base = bases.get(name)
         if base is None:
@@ -761,16 +812,25 @@ def _apply_level_globals(scene, values):
         if len(value) != len(base):
             raise ValueError("[material] level global {0} has {1} components, the stack reads {2}".format(
                 name, len(value), len(base)))
-        scene[name] = [float(component) - component_base for component, component_base in zip(value, base)]
-        written.append(name)
-    scene.update_tag()
-    return written, sorted(name for name in values if name not in bases)
+        rows[name] = [float(component) - component_base for component, component_base in zip(value, base)]
+    if rows:
+        world = level_world(scene)
+        for name, row in rows.items():
+            world[name] = row
+        world.update_tag()
+    return list(rows), sorted(name for name in values if name not in bases)
 
 
 _LEVEL_RESOURCES_MAGIC = 0x52564C52
 _LEVEL_RESOURCES_VERSION = 3
 _TEXEL_FORMATS = {1: "<f2", 2: "u1", 3: "<f4"}
 _BLOCK_KINDS = {0: "volume", 1: "array", 2: "tiles"}
+
+
+def _level_size(size, mip):
+    """One dimension of a block at one mip, as the writer counts it: never below one texel,
+    except for a block that states none at all -- a table of no records holds none anywhere."""
+    return 0 if size == 0 else max(1, size >> mip)
 
 
 def _level_resources(payload):
@@ -836,8 +896,8 @@ def _level_resources(payload):
             continue
         levels = []
         for mip in range(mips):
-            level_width, level_height = max(1, width >> mip), max(1, height >> mip)
-            level_depth = max(1, depth >> mip) if kind == "volume" else depth
+            level_width, level_height = _level_size(width, mip), _level_size(height, mip)
+            level_depth = _level_size(depth, mip) if kind == "volume" else depth
             total = level_width * level_height * level_depth * channels
             texels = numpy.frombuffer(view, dtype=texel_format, count=total, offset=cursor)
             cursor += texels.nbytes
@@ -917,8 +977,9 @@ def _write_tiles(image, tiles):
     stored row at the bottom (Blender's pixel order, and the order the source stores rows in).
     A tile takes its pixels only from a file, so each goes through a throwaway half-float OpenEXR
     -- written top row first, as the format stores it -- the image reloads them as its tiles and
-    packs them, and the files go. A level with no tiles leaves the image as it is: nothing
-    reads it."""
+    packs them, and the files go. Tiles packed by an earlier write are dropped first: a packed
+    tile re-packs from the file it was packed from, and that file is already gone. A level with no
+    tiles leaves the image as it is: nothing reads it."""
     import shutil
     import tempfile
     import numpy
@@ -938,6 +999,8 @@ def _write_tiles(image, tiles):
                 raise RuntimeError("[material] cannot write tile {0}: {1}".format(path, oiio.geterror()))
             output.write_image(numpy.ascontiguousarray(pixels[::-1]))
             output.close()
+        if image.packed_files:
+            image.unpack(method="REMOVE")
         wanted = {1001 + index for index in range(len(tiles))}
         for tile in list(image.tiles):
             if tile.number not in wanted:
@@ -1088,6 +1151,8 @@ def _apply_level_images(scene, blocks):
         if layout["kind"] == "slice":
             slices.setdefault(layout["array"], {})[int(layout["index"])] = layout
     filled = []
+    images = []
+    texel_sizes = {}
     for name, (kind, levels) in blocks.items():
         if name in slices:
             if kind != "tiles":
@@ -1099,7 +1164,9 @@ def _apply_level_images(scene, blocks):
             for index, layout in sorted(slices[name].items()):
                 if index >= len(levels):
                     continue
-                _fill_image(volume_image(layout), _tile_pixels(levels[index]))
+                image = volume_image(layout)
+                _fill_image(image, _tile_pixels(levels[index]))
+                images.append(image)
             filled.append(name)
             continue
         layout = layouts.get(name)
@@ -1110,6 +1177,7 @@ def _apply_level_images(scene, blocks):
             raise ValueError("[material] level image {0}: stated as a {1}, read as a {2}".format(
                 name, kind, layout["kind"]))
         image = volume_image(layout)
+        images.append(image)
         if kind == "tiles":
             _write_tiles(image, levels)
             filled.append(name)
@@ -1119,10 +1187,18 @@ def _apply_level_images(scene, blocks):
         base = _texel_size_base(name + "_TexelSize") if layout["kind"] == "texture" and "size" not in layout else None
         if base is not None:
             height, width = pixels.shape[:2]
-            scene[name + "_TexelSize"] = [value - offset for value, offset in
-                                          zip((1.0 / width, 1.0 / height, float(width), float(height)), base)]
+            texel_sizes[name + "_TexelSize"] = [value - offset for value, offset in
+                                                zip((1.0 / width, 1.0 / height, float(width), float(height)), base)]
         filled.append(name)
-    scene.update_tag()
+    if images or texel_sizes:
+        world = level_world(scene)
+        for key, row in texel_sizes.items():
+            world[key] = row
+        held = world.get(LEVEL_IMAGES_PROPERTY)
+        bound = {key: held[key] for key in held.keys() if held[key] is not None} if held is not None else {}
+        bound.update((image.name, image) for image in images)
+        world[LEVEL_IMAGES_PROPERTY] = bound
+        world.update_tag()
     return filled, sorted(name for name in blocks if name not in layouts and name not in slices)
 
 
@@ -1406,37 +1482,47 @@ class MaterialBuilder:
         return node
 
     def _wire_opacity(self, material, tree, bsdf, roles, base_node):
-        """The blend state is material DATA when the material declares one.
+        """The blend state is material DATA, and a material that states none is
+        opaque -- as it is in every pipeline. Its base map's alpha is opacity only
+        when the material says it blends or clips, or a layer names that channel
+        opacity: an opaque material routinely packs something else there (a mask,
+        a metallic channel, nothing at all), and reading that as opacity is what
+        turned whole floors invisible.
 
-        An opaque material routinely repurposes the base map's alpha, so wiring
-        it as opacity turns whole walls translucent -- honour the declared mode.
         And an alpha TEST is not alpha blending: a material stating a cutoff asks
         for every texel to be all there or not there at all, and handing its soft
-        alpha to a stochastic blend loses most of it to dithering noise."""
-        mode = roles.floats.get("blend_mode")
-        wire = True if mode is None else float(mode) >= 0.5
+        alpha to a stochastic blend loses most of it to dithering noise. The test
+        keeps a texel whose alpha REACHES the cutoff -- the engines' own
+        clip(alpha - cutoff) -- so a zero cutoff keeps every texel. A cutoff a
+        material merely carries while it does not clip is not a test."""
+        transparent = roles.transparent
+        clipped = roles.clipped
         opacity_texture, opacity_channel = roles.with_channel("opacity")
         base = roles.first("base_color")
-        if opacity_texture is not None and opacity_texture is base and opacity_channel == _ALPHA_CHANNEL:
-            wire = True
-        if base_node is not None and wire:
+        named = (opacity_texture is not None and opacity_texture is base
+                 and opacity_channel == _ALPHA_CHANNEL)
+        if base_node is not None and (transparent or clipped or named):
             cutoff = roles.floats.get("alpha_cutoff")
             _enable_alpha_channel(base_node.image)
             socket = base_node.outputs["Alpha"]
-            if cutoff is not None and float(cutoff) > 0.0:
-                test = tree.nodes.new("ShaderNodeMath")
-                test.operation = "GREATER_THAN"
-                test.location = (-100, -150)
-                test.label = "alpha cutoff {0:.3f}".format(float(cutoff))
-                test.inputs[1].default_value = float(cutoff)
-                tree.links.new(socket, test.inputs[0])
-                socket = test.outputs["Value"]
+            if clipped and cutoff is not None:
+                below = tree.nodes.new("ShaderNodeMath")
+                below.operation = "LESS_THAN"
+                below.location = (-250, -150)
+                below.label = "alpha cutoff {0:.3f}".format(float(cutoff))
+                below.inputs[1].default_value = float(cutoff)
+                tree.links.new(socket, below.inputs[0])
+                kept = tree.nodes.new("ShaderNodeMath")
+                kept.operation = "SUBTRACT"
+                kept.location = (-100, -150)
+                kept.inputs[0].default_value = 1.0
+                tree.links.new(below.outputs["Value"], kept.inputs[1])
+                socket = kept.outputs["Value"]
             tree.links.new(socket, bsdf.inputs["Alpha"])
-        if mode is not None:
-            try:
-                material.surface_render_method = "BLENDED" if float(mode) >= 1.5 else "DITHERED"
-            except Exception:
-                pass
+        try:
+            material.surface_render_method = "BLENDED" if transparent else "DITHERED"
+        except Exception:
+            pass
 
     def _wire_normal(self, tree, bsdf, roles, claimed):
         normal = roles.first("normal")

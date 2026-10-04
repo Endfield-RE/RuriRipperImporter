@@ -78,7 +78,8 @@ def load(context, seeds, options=None, report=None):
         return kernel_statement.Built(warnings=["Nothing to load: the selection states no seed."])
     if cabmap_state.BRIDGE is None:
         return kernel_statement.Built(warnings=["No install is open to load from."])
-    return place(context, read(seeds, options), options, report)
+    with read(seeds, options) as stated:
+        return place(context, stated, options, report)
 
 
 def perform(context, seeds, rig=None, options=None, activate=False):
@@ -100,8 +101,8 @@ def perform(context, seeds, rig=None, options=None, activate=False):
         return 0, ["Nothing to play: the selection states no seed."]
     if target is None:
         return 0, ["Select the rig to play onto first."]
-    clips = statement(seeds, values).clips(paths=host.rig_paths(target),
-                                           avatar=host.rig_avatar(target))
+    with statement(seeds, values) as stated:
+        clips = stated.clips(paths=host.rig_paths(target), avatar=host.rig_avatar(target))
     landed, lines = host.play(context, target, clips, values, activate)
     restate = Game.face_retarget_of(values.get("source_game", "")) if values.get("retarget_face") else None
     if restate is not None:

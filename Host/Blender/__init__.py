@@ -157,6 +157,10 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
         view_layer = (context or bpy.context).view_layer
         view_layer.active_layer_collection = view_layer.layer_collection
 
+    def apply_renderer(self, context):
+        from . import renderer
+        renderer.apply(context.scene)
+
     def apply_environment(self, context, environment):
         from . import ui_stage, world_builder
         ambient = environment["ambient"]
@@ -178,7 +182,7 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
 
     def apply_medium(self, context, medium):
         from . import medium as medium_builder
-        return medium_builder.apply(context, medium)
+        return medium_builder.apply(context, medium, bpy.data.objects.get(LEVEL_SUN))
 
     def source_view_position(self, context):
         """Where the document is being looked at from, in the source's world: the scene
@@ -308,8 +312,8 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
 HOST = host_port.bind(BlenderHost())
 
 from ... import Game                                                    # noqa: E402
-from . import (rna, render, coordinate, rig_identity, plugin_data, material_builder,  # noqa: E402
-               material_panel, derived_state, animation_builder, step_loader, browser_panel,
+from . import (rna, render, coordinate, rig_identity, plugin_data, linked_twins, material_builder,  # noqa: E402
+               material_panel, derived_state, allocator, animation_builder, step_loader, browser_panel,
                post_panel, viewpoint)
 
 
@@ -334,7 +338,7 @@ def _holds_process_state(module):
 #: not the module. Anything under this driver that is NOT listed is still
 #: reloaded, just after these, so forgetting one costs ordering rather than
 #: correctness.
-_DRIVER_ORDER = (rna, render, coordinate, rig_identity, plugin_data, material_builder, material_panel,
+_DRIVER_ORDER = (rna, render, coordinate, rig_identity, plugin_data, linked_twins, material_builder, material_panel,
                  derived_state, animation_builder, step_loader, browser_panel, post_panel)
 
 
@@ -437,10 +441,14 @@ def register():
     rna.register_shared()
     # ⛔ 插件自己的数据严禁写进 .blend:存盘前的守卫。
     plugin_data.register()
+    # link 进来的材质画的是本会话编的替身;存盘那一刻本地用户指回库里的材质。
+    linked_twins.register()
     browser_panel.register()
     # 派生态调度器:导入产物、灯、相机的变更从这里统一收敛成一次重建。装在游戏之前,
     # 这样一个游戏的着色栈注册进来的阶段第一次被用到时,调度器已经在监听了。
     derived_state.register()
+    # 开文件时先由派生态现建(后台当场落地),再把旧文件释放掉的内存还给系统。
+    allocator.register()
     # 合成树读的视点:界面里跟着用户正在转的那个 3D 视图走,文件换了 / 撤销了就重新认领。
     viewpoint.register()
     # 材质参数面板:每个生成着色栈把自己的接口 + 读写路径注册进来(Game.register 里发生),
@@ -477,8 +485,10 @@ def unregister():
     Game.unregister()
     material_panel.unregister()
     viewpoint.unregister()
+    allocator.unregister()
     derived_state.unregister()
     browser_panel.unregister()
+    linked_twins.unregister()
     plugin_data.unregister()
     rna.unregister_shared()
     bpy.utils.unregister_class(RuriRipperImporterPreferences)

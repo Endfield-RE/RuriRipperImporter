@@ -291,17 +291,16 @@ def find_or_insert_fill(stack):
 # Shader resource
 # ---------------------------------------------------------------------------
 def _sync_shader_to_shelves(report):
-    """The bundled shader source is the truth; Painter's shelf import COPIES a
-    .glsl, so editing the bundled file would otherwise never take effect. A
-    content-level sync on every run makes Painter notice the change and
-    recompile (hot reload)."""
-    source_path = shader_path()
-    if not os.path.isfile(source_path):
-        return
-    try:
-        with open(source_path, "rb") as handle:
-            source = handle.read()
-    except OSError:
+    """The bundled shader is the truth; Painter's shelf import COPIES it, so editing
+    the bundled files would otherwise never take effect. A content-level sync on
+    every run makes Painter notice the change and recompile (hot reload).
+
+    The shader and the manifest the generator wrote beside it are one product: the
+    manifest is what anything reading the shelf asks which textures are channels
+    and which generation of the shader this is. A shelf holding this run's shader
+    beside last month's manifest answers both questions wrong, and silently."""
+    product = [shader_path(), shader.manifest_path()]
+    if not all(os.path.isfile(path) for path in product):
         return
     shelves_cls = getattr(substance_painter.resource, "Shelves", None)
     if shelves_cls is None:
@@ -317,17 +316,24 @@ def _sync_shader_to_shelves(report):
             continue
         if not root:
             continue
-        candidate = os.path.join(root, "shaders", shader.name() + ".glsl")
-        if not os.path.isfile(candidate):
+        folder = os.path.join(root, "shaders")
+        if not os.path.isfile(os.path.join(folder, shader.name() + ".glsl")):
             continue
-        try:
-            with open(candidate, "rb") as handle:
-                current = handle.read()
-            if current != source:
-                shutil.copyfile(source_path, candidate)
-                report.append("synced the bundled shader into the shelf: {0}".format(candidate))
-        except OSError as exc:
-            report.append("!! shelf sync failed {0}: {1}".format(candidate, exc))
+        for source_path in product:
+            candidate = os.path.join(folder, os.path.basename(source_path))
+            try:
+                with open(source_path, "rb") as handle:
+                    source = handle.read()
+                current = b""
+                if os.path.isfile(candidate):
+                    with open(candidate, "rb") as handle:
+                        current = handle.read()
+                if current != source:
+                    shutil.copyfile(source_path, candidate)
+                    report.append("synced {0} into the shelf: {1}".format(
+                        os.path.basename(source_path), candidate))
+            except OSError as exc:
+                report.append("!! shelf sync failed {0}: {1}".format(candidate, exc))
 
 
 def find_shader_resource(report):
@@ -560,12 +566,13 @@ def apply_display_settings(report, options=None):
     instead meant three switches nothing ever wrote and therefore three
     switches that did nothing.
 
-    CharCubemap.exr is only the display environment: the backdrop, and the ambient
-    irradiance of shaders that ask the host for it. The reflection cubes the source
-    samples are runtime globals no Painter shader can bind, so the generated shader
-    reads the engine's empty-cube value there, as every other host does. The HG post
-    tonemap is built INTO the shader ([H9]), so Painter's display tone mapping must
-    be Linear or it is applied twice."""
+    CharCubemap.exr is the environment the characters reflect. The source's reflection
+    cubes are runtime globals no Painter shader can bind; the generated shader answers
+    a cube read with this environment, prefiltered with this application's own
+    importance sampling at the roughness the source's mip stands for (the style's
+    declared mip law) -- the environment's own mip chain is plain downsampling, not
+    the source's prefiltered levels. The HG post tonemap is built INTO the shader
+    ([H9]), so Painter's display tone mapping must be Linear or it is applied twice."""
     options = settings.import_options() if options is None else options
     if _display is None or getattr(_display, "set_environment_resource", None) is None:
         report.append("note: this Painter build has no display API -- set the environment "
@@ -627,7 +634,29 @@ def apply_display_settings(report, options=None):
 # ---------------------------------------------------------------------------
 # Per texture set wiring
 # ---------------------------------------------------------------------------
-def wire_texture_set(ts_obj, set_name, plan, channel_files, param_files, report,
+def wire_mesh_maps(ts_obj, plan, mesh_map_files, report):
+    """The game's baked occlusion/normal become this Texture Set's own baked mesh maps: the generated
+    shader reads them through this application's getAO/getTSNormal, so its native composition with
+    what the user paints (occlusion channel, normal channel, height) applies on top as it does for a
+    bake of its own."""
+    for input_id, path in sorted(mesh_map_files.items()):
+        usage_name = plan.mesh_maps[input_id]
+        usage = getattr(substance_painter.textureset.MeshMapUsage, usage_name, None)
+        if usage is None:
+            report.append("    !! this application has no mesh map usage {0} -- {1} skipped".format(
+                usage_name, os.path.basename(path)))
+            continue
+        try:
+            ts_obj.set_mesh_map_resource(usage, _rid(import_texture(path)))
+        except Exception as exc:
+            report.append("    !! mesh map {0} <- {1} failed: {2}".format(
+                usage_name, os.path.basename(path), exc))
+            continue
+        report.append("    {0:<16} <- {1} (mesh map {2})".format(
+            input_id, os.path.basename(path), usage_name))
+
+
+def wire_texture_set(ts_obj, set_name, plan, channel_files, param_files, mesh_map_files, report,
                      set_payloads):
     report.append("* {0}  [{1}]".format(
         set_name, "{0} {1}".format(plan.part, plan.part_label) if plan.shaded else "by role"))
@@ -678,6 +707,8 @@ def wire_texture_set(ts_obj, set_name, plan, channel_files, param_files, report,
                 report.append("    !! could not wire {0} (see the API dump above)".format(
                     os.path.basename(path)))
 
+    wire_mesh_maps(ts_obj, plan, mesh_map_files, report)
+
     # -- sampler textures -> shader uniforms: the generated shader's, so a set planned by role
     #    keeps this application's own shader and has none --
     if not plan.shaded:
@@ -699,9 +730,9 @@ def wire_texture_set(ts_obj, set_name, plan, channel_files, param_files, report,
 
 
 
-def apply(plans, baked_channels, baked_params, report, options=None):
+def apply(plans, baked_channels, baked_params, baked_mesh_maps, report, options=None):
     """Wire every Texture Set of the OPEN project. ``plans`` maps texture set
-    name -> MaterialPlan; the two baked dicts map the same name -> {target: path}."""
+    name -> MaterialPlan; the three baked dicts map the same name -> {target: path}."""
     set_payloads = {}
     try:
         texture_sets = substance_painter.textureset.all_texture_sets()
@@ -721,6 +752,7 @@ def apply(plans, baked_channels, baked_params, report, options=None):
             wire_texture_set(ts_obj, set_name, plan,
                              baked_channels.get(set_name, {}),
                              baked_params.get(set_name, {}),
+                             baked_mesh_maps.get(set_name, {}),
                              report, set_payloads)
         except Exception:
             report.append("    !! exception: " + traceback.format_exc(limit=3))

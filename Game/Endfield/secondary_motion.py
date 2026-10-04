@@ -16,18 +16,6 @@ from ...Kernel.bridge import cabmap_state
 from . import cloth
 
 
-def _prefab_texts(cabs):
-    """The serialized text of what those archives carry -- what the cloth reader
-    parses its fields out of. One published dataset, so there is no second way to
-    open an archive on this side."""
-    cabs = [cab for cab in cabs if cab]
-    if not cabs or cabmap_state.BRIDGE is None:
-        return []
-    table = cabmap_state.BRIDGE.game_data("core.assets.text", cab=cabs)
-    return [str(table.cell(index, "text")) for index in range(len(table))
-            if str(table.cell(index, "path")).lower().endswith(".prefab")]
-
-
 def read(cabs):
     """What those model prefabs state about their secondary motion, in the shared
     vocabulary (:mod:`Kernel.app.rigging`), or None for nothing to bring across.
@@ -35,10 +23,8 @@ def read(cabs):
     This is the callable the game module declares (see ``Game.GameModule``), so both
     ways in reach it without the host ever learning what these settings are -- only
     whether this game answered."""
-    if cabmap_state.BRIDGE is None:
+    cabs = [cab for cab in cabs if cab]
+    if cabmap_state.BRIDGE is None or not cabs:
         return None
-    texts = _prefab_texts(cabs)
-    if not texts:
-        return None
-    reading = cloth.read(texts)
+    reading = cloth.read(cabs)
     return reading if reading["configs"] else None

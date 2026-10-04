@@ -171,6 +171,12 @@ class SceneGraph(abc.ABC):
         the browser's "Reset Scene" means."""
 
     @abc.abstractmethod
+    def apply_renderer(self, context):
+        """Put the document's renderer in the configuration the shading stacks are verified under,
+        before a level is stood up in it: a startup scene carries whatever settings it was saved
+        with, and a level shaded under those shows what no stack was verified to show."""
+
+    @abc.abstractmethod
     def apply_environment(self, context, environment):
         """Stand the environment a level puts its viewer under up in the document,
         replacing any stood up before. ``environment`` is ``{"label", "ambient",

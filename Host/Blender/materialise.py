@@ -119,6 +119,8 @@ class _Materialisation:
         self.aimed = {}
         #: mesh key -> the mesh datablock, so an instanced mesh is built once
         self.meshes = {}
+        #: per-draw values the statement binds that no shading stack reads -> how many objects carried one
+        self.unread_parameters = {}
 
     # -- the run ------------------------------------------------------------
     def run(self):
@@ -129,6 +131,8 @@ class _Materialisation:
             self._build_node(node, roots)
         for entry in self.statement.report:
             self.warnings.append("{0} x{1}: {2}".format(entry.what, entry.count, entry.detail))
+        for name, count in sorted(self.unread_parameters.items()):
+            self.warnings.append("per-draw value no shading stack reads x{0}: {1}".format(count, name))
         self._fit_shadow_pool()
         # Building nothing is an ANSWER, and it is one of two different answers:
         # the selection stated nothing, or it stated transforms and not one of
@@ -315,10 +319,11 @@ class _Materialisation:
             self.carried[node.index] = local
             return
         made = bpy.data.objects.new(node.name, data)
-        self.context.collection.objects.link(made)
+        self._collection_of(node).objects.link(made)
         self._draws_now(made, node)
         if isinstance(data, bpy.types.Mesh):
             self._cast_shadows(made, node)
+            self._object_parameters(made, node)
         parent = self.built.get(node.parent)
         if parent is not None:
             made.parent = parent
@@ -363,6 +368,35 @@ class _Materialisation:
         if node.shadows > kernel_statement.SHADOWS_OFF and not node.main_light_shadows:
             shadow_casting.exclude_from_main_light(made)
 
+    def _collection_of(self, node):
+        """Where a node's object goes: the collection the import runs in, or the child of it the
+        statement gathers the node under -- one per name, made on first use and reused by every
+        later import into the same collection."""
+        home = self.context.collection
+        if not node.collection:
+            return home
+        gathered = home.children.get(node.collection)
+        if gathered is None:
+            gathered = bpy.data.collections.new(node.collection)
+            home.children.link(gathered)
+        return gathered
+
+    def _object_parameters(self, made, node):
+        """What the pipeline binds for the renderer's own draw, where the shading stacks read it: each per-draw
+        value as the per-object global of its name, written as the difference from the default the stacks declare
+        (the encoding every per-object global uses) and not at all where it equals that default. A value no stack
+        reads has nowhere to go and is counted for the report."""
+        for name, value in node.object_parameters.items():
+            base = material_builder.object_attribute_base(name)
+            if base is None:
+                self.unread_parameters[name] = self.unread_parameters.get(name, 0) + 1
+                continue
+            difference = [component - default for component, default in zip(value, base)]
+            if any(difference):
+                made[name] = difference
+            elif name in made:
+                del made[name]
+
     def _needs_empty(self, node):
         """Whether a transform with nothing on it still has to exist: because the
         user asked for every one, or because something under it will be parented
@@ -390,9 +424,10 @@ class _Materialisation:
         if data is None:
             return
         made = bpy.data.objects.new(node.name, data)
-        self.context.collection.objects.link(made)
+        self._collection_of(node).objects.link(made)
         self._draws_now(made, node)
         self._cast_shadows(made, node)
+        self._object_parameters(made, node)
         self.built[node.index] = made
         self.objects.append(made)
         rig, bone_names = self.rigs.get(node.skeleton, (None, {}))
@@ -595,7 +630,14 @@ class _Materialisation:
         (``Light::point_radiance_get``). A sun's strength is already the irradiance it hands
         over. So point and spot power is the intensity times 4 pi, and a sun's is the
         intensity as stated. The source's lights are points: no radius. What a light scatters
-        into a participating medium is scaled by the volume factor it states.
+        into a participating medium is scaled by the volume factor it states, its specular
+        reflections by the specular factor it states.
+
+        A stated shadow resolution is the texels the source's shadow map spans across the
+        light's shadow frustum: a spot's cone, each face of a point light's cube (a 90 degree
+        frustum). EEVEE limits a local light's shadow to a texel size one unit from the light,
+        so the limit is ``2 tan(frustum / 2) / texels`` -- the source's own resolution, never
+        finer. Without one EEVEE keeps its own limit.
 
         A cone blends from its inner angle to its outer one; Blender blends over the fraction
         ``spot_blend`` of the cosine span from the outer edge to the axis, so the same span is
@@ -606,6 +648,7 @@ class _Materialisation:
         light.color = stated["color"]
         light.use_shadow = stated["shadows"]
         light.volume_factor = stated["volume"]
+        light.specular_factor = stated["specular"]
         if kind in ("POINT", "SPOT"):
             light.energy = stated["intensity"] * 4.0 * np.pi
             light.shadow_soft_size = 0.0
@@ -619,6 +662,9 @@ class _Materialisation:
             cos_inner = np.cos(np.radians(min(stated["inner_angle"], stated["angle"])) * 0.5)
             light.spot_size = outer
             light.spot_blend = float(np.clip((cos_inner - cos_outer) / max(1.0 - cos_outer, 1e-6), 0.0, 1.0))
+        if stated["shadow_resolution"] > 0 and kind in ("POINT", "SPOT"):
+            frustum = light.spot_size if kind == "SPOT" else np.pi * 0.5
+            light.shadow_maximum_resolution = float(2.0 * np.tan(frustum * 0.5) / stated["shadow_resolution"])
         if kind == "AREA":
             light.size = stated["width"]
             light.size_y = stated["height"]

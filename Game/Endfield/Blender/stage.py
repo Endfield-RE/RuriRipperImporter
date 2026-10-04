@@ -5,8 +5,8 @@ do, in seconds, against names (``endfield.story.stage``). Nothing in that stream
 Unity-shaped, so nothing here has to know what an ``ActivationTrack`` is; it knows
 what ``show`` means, and there is exactly one function that means it.
 
-That is the whole architecture: a directive kind is a key in ``REALIZERS`` and a
-function under ``@realizer``. Supporting something the game adds later is one new
+That is the whole architecture: a directive kind is a key of the ``REALIZERS`` point
+and a function under ``@realizer``. Supporting something the game adds later is one new
 function and no edit to anything that already works -- which is the property the
 previous design did not have, since every track class was another branch inside one
 operator.
@@ -43,18 +43,22 @@ import os
 import re
 
 import bpy
+from bpy_extras import anim_utils
 
 from ....Host.Blender import rig_identity, step_loader
+from ....Kernel import extensions
 from ....Kernel import statement as kernel_statement
 from ....Kernel.app import loading
 from ....Kernel.bridge import cabmap_state
 from .. import datasets
 
 # What a directive means, by its own word, and what it needs before it can mean
-# it. The registry IS the extension point: a new kind is one function under
-# @realizer, plus -- only if it loads something -- one under @needs.
-REALIZERS = {}
-NEEDS = {}
+# it. A new kind is one function under @realizer, plus -- only if it loads
+# something -- one under @needs.
+REALIZERS = extensions.point("story directive realizers",
+                             "Directive kind -> the one function that means it on stage.")
+NEEDS = extensions.point("story directive needs",
+                         "Directive kind -> what it needs LOADED, as CAB names, from its row alone.")
 
 # Where a subtitle sits in front of the camera, in metres of camera space, and how
 # tall its text is there. Not a game fact -- the game draws its box in screen space
@@ -85,7 +89,7 @@ def realizer(*kinds):
     """Register the one function that means a directive."""
     def register(function):
         for kind in kinds:
-            REALIZERS[kind] = function
+            REALIZERS.add(function, key=kind)
         return function
     return register
 
@@ -100,7 +104,7 @@ def needs(*kinds):
     realizing) is not reachable from a realizer at all."""
     def register(function):
         for kind in kinds:
-            NEEDS[kind] = function
+            NEEDS.add(function, key=kind)
         return function
     return register
 
@@ -635,13 +639,11 @@ def _key_lens(stage, vcam_name, frame):
         if own.action is None or own.action is shared:
             own.action = bpy.data.actions.new(camera.name + "_lens")
         camera.data.keyframe_insert("lens", frame=frame)
-        for curve in (camera.data.animation_data.action.fcurves
-                      if camera.data.animation_data and camera.data.animation_data.action
-                      else []):
+        for curve in _curves(own.action, own.action_slot):
             for point in curve.keyframe_points:
                 point.interpolation = "CONSTANT"
     animation = camera.animation_data
-    for curve in (animation.action.fcurves if animation and animation.action else []):
+    for curve in (_curves(animation.action, animation.action_slot) if animation else ()):
         for point in curve.keyframe_points:
             point.interpolation = "CONSTANT"
     return True
@@ -904,9 +906,16 @@ def _keyframe_visibility(target, spans, fps):
             setattr(target, attribute, True)
             target.keyframe_insert(attribute, frame=int(round(stop * fps)) + 1)
     animation = target.animation_data
-    for curve in (animation.action.fcurves if animation and animation.action else []):
+    for curve in (_curves(animation.action, animation.action_slot) if animation else ()):
         for point in curve.keyframe_points:
             point.interpolation = "CONSTANT"
+
+
+def _curves(action, slot):
+    """The curves an action plays for one slot: the layered action keeps them per slot, and a slot
+    nothing was keyed for has none."""
+    channelbag = anim_utils.action_get_channelbag_for_slot(action, slot) if action is not None else None
+    return channelbag.fcurves if channelbag is not None else ()
 
 
 # ── strips ──────────────────────────────────────────────────────────────────
@@ -1118,8 +1127,10 @@ def _hold_curves(cabs, options):
     if not cabs:
         return 0
     held = 0
-    stated = loading.statement(cabs, options).in_basis(kernel_statement.UNITY)
-    for clip in stated.clips(paths=(rig_identity.ANIMATOR_ROOT_PATH,), avatar=""):
+    with loading.statement(cabs, options) as stated:
+        clips = stated.in_basis(kernel_statement.UNITY).clips(
+            paths=(rig_identity.ANIMATOR_ROOT_PATH,), avatar="")
+    for clip in clips:
         curves = _ObjectCurves(clip)
         _CURVES[(clip.archive, None)] = True
         _CURVES.setdefault((clip.archive, clip.name), curves)
@@ -1272,7 +1283,7 @@ def _camera_rect(stage):
         for strip in track.strips:
             if strip.action is None:
                 continue
-            for curve in strip.action.fcurves:
+            for curve in _curves(strip.action, strip.action_slot):
                 if curve.data_path != "location":
                     continue
                 values = [point.co[1] for point in curve.keyframe_points]
@@ -1280,7 +1291,8 @@ def _camera_rect(stage):
                     continue
                 low, high = min(values), max(values)
                 seen = axes.get(curve.array_index)
-                axes[curve.array_index] = (min(low, seen[0]), max(high, seen[1]))                     if seen else (low, high)
+                axes[curve.array_index] = ((min(low, seen[0]), max(high, seen[1]))
+                                           if seen else (low, high))
     if not {0, 1, 2} <= set(axes):
         return None
     back = coordinate.conversion_matrix().inverted()

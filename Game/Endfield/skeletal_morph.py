@@ -79,15 +79,17 @@ class MorphDriver:
 
 class MorphAsset:
     """One parsed SkeletalMorph asset: its kind, its channels, and the drivers
-    in them. ``guid`` is the closure key it was loaded under."""
+    in them. ``guid`` is the closure key it was loaded under; ``cab`` is the archive
+    it was read from, the identity its morph library entry states."""
 
-    __slots__ = ("guid", "name", "kind", "duration", "flags", "channels",
+    __slots__ = ("guid", "name", "kind", "cab", "duration", "flags", "channels",
                  "references", "phoneme_sets")
 
-    def __init__(self, guid, name, kind):
+    def __init__(self, guid, name, kind, cab):
         self.guid = guid
         self.name = name
         self.kind = kind
+        self.cab = cab
         self.duration = 0.0
         self.flags = {}          # _bIsAdditiveClip / _bIsOverride / _bIsPauseAutoBlink / ...
         self.channels = {}       # channel key -> [MorphDriver]

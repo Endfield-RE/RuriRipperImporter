@@ -12,7 +12,7 @@ Two tabs, neither of which means anything for another title:
                a model on (CharInfo, CharFormation, WeaponInfo), loaded around a
                character already in the scene.
                (``scene`` + ``scene_state``;
-                ``ui_scene`` + ``ui_scene_state`` for the UI half, which is the
+                ``ui_scene`` for the UI half, which is the
                 one part that needs a scene to load a stage AROUND)
 ``Character``  the cast, and what can be done to the one you loaded. Its own row
                switches what the tab lists: ``Characters``/``NPCs`` the two casts,
@@ -40,7 +40,6 @@ from __future__ import annotations
 import importlib
 
 from ...Kernel import host as host_port
-from ...Kernel.app import look
 from .. import GameModule, GameSection, GameTab
 
 #: The parts the two tabs are composed of, each with the capability its host must
@@ -71,8 +70,6 @@ def _unregister():
     for module in reversed(_LOADED):
         module.unregister()
     _LOADED[:] = []
-
-
 
 
 def _face_retarget(*arguments):
@@ -115,14 +112,6 @@ GAME_MODULE = GameModule(
                 "its story animations, and the SkeletalMorph emotion/pose/lipsync "
                 "library",
                 ("character", "draw_tab")),
-        # 「一帧最终长什么样」是这个游戏的问题(是它的着色栈在管画面),但答案由宿主给:
-        # 材质参数、主光、后处理链是一个宿主的三段回答,显示端的环境/LUT/tonemap 是另一个
-        # 宿主的一段回答。所以这一格画的是 look 注册表里本宿主答得出的那些段,而不是某个
-        # 宿主的面板 —— 它因此在两端都在,只是里面的段不一样。
-        GameTab("post", "Look",
-                "How the frame is finally shown: this game's shading knobs, and whatever "
-                "this application exposes about its display",
-                look.draw),
     ),
     # A UI or cutscene clip carries its face in the BONE tracks, so importing one onto
     # another character needs the performance read off the geometry and restated in that

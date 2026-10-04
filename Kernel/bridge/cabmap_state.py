@@ -72,7 +72,7 @@ class GameSession:
 
     __slots__ = ("key", "game", "ROWS", "VISIBLE", "CURRENT_DIR", "CURRENT_SUBFOLDERS",
                  "SELECTED_CABS", "SELECT_ANCHOR",
-                 "_CAB_INDEX", "_sort_column", "_sort_dir", "_active_rules")
+                 "_CAB_INDEX", "_FLAGGED", "_sort_column", "_sort_dir", "_active_rules")
 
     def __init__(self, key, game=""):
         self.key = key
@@ -84,6 +84,7 @@ class GameSession:
         self.SELECTED_CABS = set()    # cab keys of every selected row
         self.SELECT_ANCHOR = None     # ROWS index of the last plainly-clicked row (Shift range anchor)
         self._CAB_INDEX = None        # lazily built cab -> row id (see _cab_index)
+        self._FLAGGED = {}            # flag column -> (the rows it was built from, the cabs that set it)
         self._sort_column = "name"
         self._sort_dir = 0            # 0 = unsorted (load order), 1 = ascending, 2 = descending
         self._active_rules = ()       # whatever was last passed to apply_filter()'s `rules` arg
@@ -203,14 +204,31 @@ def set_select_anchor(row_index):
     ACTIVE.SELECT_ANCHOR = row_index
 
 
-def selected_row_indices():
-    """Selected rows as ROWS indices, in master ROWS order -- the deterministic
-    order a batch import runs in (not click order, which nobody can
+def rows_of(cabs):
+    """These cabs' rows (dict-compatible views), in master ROWS order -- the
+    deterministic order a batch import runs in (not click order, which nobody can
     reproduce)."""
-    if not ACTIVE.SELECTED_CABS or not len(ACTIVE.ROWS):
+    if not cabs or not len(ACTIVE.ROWS):
         return []
     index_of = _cab_index()
-    return sorted(index_of[cab] for cab in ACTIVE.SELECTED_CABS if cab in index_of)
+    return [ACTIVE.ROWS.row(index) for index in sorted(index_of[cab] for cab in cabs if cab in index_of)]
+
+
+def cabs_where(column):
+    """Every cab whose row sets the flag ``column`` the map states per row, gathered
+    once per loaded map -- so asking it about a selection of any size, on every
+    redraw, is one set operation instead of a read of each selected row. Kept with
+    the table it was built from, so a map loaded since (on a worker, while a redraw
+    asks) is never answered from the one before."""
+    rows = ACTIVE.ROWS
+    if not len(rows):
+        return frozenset()
+    built = ACTIVE._FLAGGED.get(column)
+    if built is None or built[0] is not rows:
+        cabs = rows.values("cab")
+        built = (rows, frozenset(cabs[index] for index in rows.values(column).nonzero()[0]))
+        ACTIVE._FLAGGED[column] = built
+    return built[1]
 
 
 def cab_index(session=None):
@@ -230,16 +248,6 @@ def cab_index(session=None):
 
 def _cab_index():
     return cab_index()
-
-
-def selected_row_dicts():
-    """The same selection as row views (dict-compatible)."""
-    return [ACTIVE.ROWS.row(i) for i in selected_row_indices()]
-
-
-def selected_cabs():
-    """The same selection as bare cab names -- what import_cabs() seeds."""
-    return [ACTIVE.ROWS.cell(i, "cab") for i in selected_row_indices()]
 
 
 # --- Process-Monitor-style Include/Exclude rules. The DATA shape only: matching
@@ -519,42 +527,16 @@ def display_window():
     return len(ACTIVE.VISIBLE), [(i, ACTIVE.ROWS.row(i)) for i in capped]
 
 
-#: Per install: which archive each CAB lives in, and which of those archives are gone. Session
-#: state -- a cabmap load fills it and a rebuild invalidates it.
-_ARCHIVES = {}
-
-
-def _archives():
-    """Which archive each CAB lives in, and which of those archives are gone.
-
-    The map names a few dozen chunk files for a quarter-million CABs, so asking the filesystem once
-    per ARCHIVE answers it for every CAB in it."""
-    key = active_key()
-    if key in _ARCHIVES:
-        return _ARCHIVES[key]
-    table = BRIDGE.enumerate_table()
-    root = BRIDGE.game_root or ""
-    by_cab = {}
-    rows = {}
-    for index in range(len(table.cabs)):
-        source = str(table.cell(index, "source"))
-        by_cab[table.cell(index, "cab")] = source
-        rows[source] = rows.get(source, 0) + 1
-    gone = {source: count for source, count in rows.items()
-            if not os.path.isfile(os.path.join(root, source.replace("\\", "/")))}
-    _ARCHIVES[key] = (by_cab, gone)
-    return _ARCHIVES[key]
-
-
 def unreachable_rows():
-    """(archives gone, cab rows in them) for the loaded map -- what a rebuild would bring back.
-    (0, 0) for a map that matches the install it was built from."""
-    try:
-        _by_cab, gone = _archives()
-    except Exception:
-        return 0, 0
-    return len(gone), sum(gone.values())
+    """(archives gone, cab rows in them) for the active install's loaded map -- what a rebuild
+    would bring back. (0, 0) for a map that matches the install it was built from.
 
-
-def forget_archives():
-    _ARCHIVES.clear()
+    The map names a few dozen archive files for a quarter-million CABs, so asking the filesystem
+    once per ARCHIVE answers it for every CAB in it."""
+    rows = {}
+    for source in ACTIVE.ROWS.iterate("source"):
+        rows[source] = rows.get(source, 0) + 1
+    root = BRIDGE.game_root or ""
+    gone = [count for source, count in rows.items()
+            if not os.path.isfile(os.path.join(root, source.replace("\\", "/")))]
+    return len(gone), sum(gone)

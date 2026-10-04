@@ -77,11 +77,11 @@ class Command:
     """One thing a panel can invoke."""
 
     __slots__ = ("id", "label", "description", "icon", "arguments", "_run",
-                 "_poll", "requires", "undo", "internal", "steps", "status_state",
+                 "_poll", "requires", "internal", "steps", "status_state",
                  "_settle", "failure", "source", "modifiers")
 
     def __init__(self, id, label, run, description="", icon="", arguments=(),
-                 poll=None, requires=None, undo=True, internal=False,
+                 poll=None, requires=None, internal=False,
                  steps=False, status_state="", settle=None, failure="",
                  modifiers=False):
         #: The identity the layout references, and the bl_idname Blender keeps.
@@ -100,7 +100,6 @@ class Command:
         #: Host capability this needs, or None. A host that cannot answer never
         #: shows the control -- it is not disabled, it is absent.
         self.requires = requires
-        self.undo = undo
         #: Reachable only from the control that places it -- kept out of a
         #: host's own command search, where it would be meaningless without
         #: the arguments its button supplies.

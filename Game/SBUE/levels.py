@@ -358,7 +358,7 @@ def _draw_self_contained(layout, context):
     entry = selected(state)
     tail.enabled = entry is not None
     cast_panel.draw_row_verbs(tail, [entry.payload] if entry is not None and entry.payload else [],
-                              STATE, scene=True)
+                              STATE)
 
 
 def _draw_streaming(layout, context):
@@ -385,8 +385,7 @@ def _draw_streaming(layout, context):
     if rect is None:
         box.label(text="It states no ground of its own -- import its package whole.",
                   icon="INFO")
-        cast_panel.draw_load(box, [state.world], WORLD_STATE, text="Import World Package",
-                             scene=True)
+        cast_panel.draw_load(box, [state.world], WORLD_STATE, text="Import World Package")
         return
     box.label(text="{0:.0f} x {1:.0f} m whole".format(
         _metres(rect[2] - rect[0]), _metres(rect[3] - rect[1])))
@@ -417,9 +416,8 @@ def _draw_streaming(layout, context):
     app_browser.draw_import_options(layout, context)
     tail = layout.column(align=True)
     tail.enabled = bool(CELL_BOUND.count)
-    cast_panel.draw_load(tail, CELL_BOUND.keys(), WORLD_STATE, text="Import Window", scene=True)
-    cast_panel.draw_load(layout, [state.world], WORLD_STATE, text="Import World Package",
-                         scene=True)
+    cast_panel.draw_load(tail, CELL_BOUND.keys(), WORLD_STATE, text="Import Window")
+    cast_panel.draw_load(layout, [state.world], WORLD_STATE, text="Import World Package")
 
 
 _KIND_DRAW = {LEVEL: _draw_self_contained, WORLD: _draw_streaming}

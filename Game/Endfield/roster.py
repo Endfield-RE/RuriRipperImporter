@@ -181,7 +181,8 @@ LOAD_EXPRESSIONS = command.COMMANDS.define(
     "ruri.roster_load_expressions", "Load Expressions", _load_expressions,
     description="Load the picked one's SkeletalMorph expression library onto the rig in "
                 "front of you -- a separate, much larger asset family than the model",
-    icon="SHAPEKEY_DATA", poll=_has_selection, requires=host_port.MorphTargets)
+    icon="SHAPEKEY_DATA", poll=_has_selection, requires=host_port.MorphTargets,
+    steps=True, status_state=STATE, failure="Expression library load failed")
 
 
 # ---------------------------------------------------------------------------

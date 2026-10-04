@@ -116,9 +116,7 @@ def _rig_armature(material):
 
     found = None
     for obj in bpy.data.objects:
-        if obj.data is None or not hasattr(obj.data, "materials"):
-            continue
-        if not any(slot is material for slot in obj.data.materials):
+        if not any(slot.material is material for slot in obj.material_slots):
             continue
         found = rig_identity.armature_of(obj)
         if found is not None:

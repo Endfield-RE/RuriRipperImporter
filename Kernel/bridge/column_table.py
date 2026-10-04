@@ -151,6 +151,13 @@ class ColumnTable:
             self._text_cache[index] = cached
         return cached
 
+    def iterate(self, column):
+        """Whole column, one value at a time and kept by no one -- for a single
+        pass over a column nobody needs to hold whole (``values`` keeps its list
+        for the life of the table)."""
+        index = self.index_of(column)
+        return (self._at(index, row) for row in range(self.row_count))
+
     def row(self, index):
         return {name: self._at(column, index) for column, name in enumerate(self.names)}
 

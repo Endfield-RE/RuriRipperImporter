@@ -151,7 +151,8 @@ class Node:
 
     __slots__ = ("index", "parent", "name", "path", "kind", "active", "mesh",
                  "skeleton", "materials", "anchor", "position", "rotation", "scale",
-                 "light", "camera", "tag", "shadows", "main_light_shadows")
+                 "light", "camera", "tag", "shadows", "main_light_shadows", "object_parameters",
+                 "collection")
 
     def __init__(self, row):
         self.index = int(row["node"])
@@ -180,7 +181,8 @@ class Node:
             "intensity": row["light_intensity"], "range": row["light_range"],
             "angle": row["light_angle"], "inner_angle": row["light_inner_angle"],
             "width": row["light_width"], "height": row["light_height"],
-            "shadows": bool(row["light_shadows"]), "volume": row["light_volume"],
+            "shadows": bool(row["light_shadows"]), "shadow_resolution": int(row["light_shadow_resolution"]),
+            "volume": row["light_volume"], "specular": row["light_specular"],
             "fade": _floats(row["light_fade"], 4).reshape(-1),
             "parameters": _floats(row["light_parameters"], 4)})
         self.camera = (None if row["ortho"] < 0 else {
@@ -193,6 +195,15 @@ class Node:
         #: Whether a casting renderer's shadow falls in the directional light's
         #: cascades; a streamed renderer can cast for local lights only.
         self.main_light_shadows = bool(row["main_light_shadows"])
+        #: What the pipeline binds for this renderer's own draw beyond its materials:
+        #: {name: (x, y, z, w)}, each under the name the shading stacks read it by.
+        names = [entry for entry in row["object_parameter_names"].split(SEPARATOR) if entry]
+        values = _floats(row["object_parameters"], 4)
+        self.object_parameters = {name: tuple(float(component) for component in values[index])
+                                  for index, name in enumerate(names)}
+        #: The collection this node is gathered under apart from the rest of the import (the
+        #: pipeline's own draws, by the shader that draws them), or empty for none.
+        self.collection = row["collection"]
 
     @property
     def renders(self):
@@ -404,6 +415,19 @@ class Roles:
     def packed(self):
         """Every texture whose CHANNELS carry roles, in table order."""
         return [entry for entry in self.textures if entry.channels]
+
+    @property
+    def transparent(self):
+        """Whether it blends over what is behind it: a blend mode past cutout, or a
+        transparent surface type. Stating neither is opaque, as every pipeline has it."""
+        return (self.floats.get("blend_mode", 0.0) >= 1.5
+                or self.floats.get("surface_type", 0.0) >= 0.5)
+
+    @property
+    def clipped(self):
+        """Whether it alpha-tests: the cutout blend mode, or an alpha clip switched on."""
+        mode = self.floats.get("blend_mode", 0.0)
+        return 0.5 <= mode < 1.5 or self.floats.get("alpha_clip", 0.0) >= 0.5
 
 
 class Material:
@@ -628,13 +652,45 @@ class Statement:
     geometry only never pays for the texture bytes, and a host that draws a
     report never decodes a mesh. The kernel keeps ONE flattening behind these, so
     asking for a second table of the same request costs the read and nothing
-    else."""
+    else.
 
-    __slots__ = ("_arguments", "_cache")
+    That flattening -- the selection's meshes and every one of its images -- is
+    this statement's to let go: :meth:`close` (or leaving a ``with`` block, or the
+    statement being dropped) tells the reader it will not be asked about again.
+    Left to the next load to replace, it stayed resident for as long as the session
+    sat idle after the last one. The same selection in another basis
+    (:meth:`in_basis`) reads the very same flattening, so it holds on to this one
+    and lets go through it rather than on its own."""
 
-    def __init__(self, arguments):
+    __slots__ = ("_arguments", "_cache", "_owner", "_closed")
+
+    def __init__(self, arguments, owner=None):
         self._arguments = arguments
         self._cache = {}
+        self._owner = owner
+        self._closed = False
+
+    def close(self):
+        """Done with this selection: drop what was read here and, unless this is the same
+        selection in another basis, let the reader drop the flattening."""
+        if self._closed:
+            return
+        self._closed = True
+        self._cache = {}
+        if self._owner is None:
+            session.release_statement(**self._arguments)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     @classmethod
     def of(cls, seeds, basis=UNITY, detail=0, inactive=True, shadow_proxies=False,
@@ -783,7 +839,7 @@ class Statement:
             return self
         arguments = dict(self._arguments)
         arguments["basis"] = basis
-        return Statement(arguments)
+        return Statement(arguments, owner=self._owner or self)
 
     # -- what a host asks while it builds -----------------------------------
     def children_of(self, node_index):

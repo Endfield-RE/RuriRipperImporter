@@ -237,6 +237,11 @@ class RURI_OT_story_choose(bpy.types.Operator):
     bl_description = "Take this option -- the branch it belongs to becomes the one that plays"
     index: IntProperty()
 
+    @classmethod
+    def poll(cls, context):
+        """Choosing carries on through Advance, so it asks what Advance asks: a built story with beats."""
+        return RURI_OT_story_advance.poll(context)
+
     def execute(self, context):
         script = _script(context)
         script.last_option = script.option

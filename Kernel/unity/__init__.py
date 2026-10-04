@@ -1,6 +1,6 @@
-"""Unity asset domain: parsing, resolution and decoding of Unity's own data.
+"""Unity asset domain: the shapes Unity's own data arrives in on this side.
 
 Deliberately empty of imports -- every module here is imported by name
-(``from ..unity import unity_yaml``), so pulling in one of them never drags the
+(``from ..unity import clip_curves``), so pulling in one of them never drags the
 rest.
 """

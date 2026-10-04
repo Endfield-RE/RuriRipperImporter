@@ -7,16 +7,14 @@ it ever touches `clr`/.NET objects directly, which is what keeps the bridge one
 implementation rather than one per host.
 
 The bin dir -- the folder that has to contain BOTH Ruri.RipperHook.dll and
-Ruri.RipperHook.CLI.runtimeconfig.json, typically
-``<checkout>/AssetRipper/Source/0Bins/AssetRipper/Release`` -- is the one genuinely
-machine-specific value here. No repo-root-relative derivation, no
-configuration guessing, nothing hardcoded: it is resolved, in order, from
+Ruri.RipperHook.CLI.runtimeconfig.json, typically ``<checkout>/Source/0Bins/Release``
+-- is the one genuinely machine-specific value here. No repo-root-relative
+derivation, no configuration guessing, nothing hardcoded: it is resolved, in
+order, from
 
 1. ``set_bin_dir(path)`` -- what the host pushed in (Blender: its
    AddonPreferences; Painter: its settings file), which is the normal case;
-2. ``set_bin_dir_provider(fn)`` -- a callable, for a host whose preference can
-   change under it and would rather be asked than have to remember to push;
-3. ``$RURI_RIPPERHOOK_BIN`` -- the headless/CLI escape hatch, no UI needed.
+2. ``$RURI_RIPPERHOOK_BIN`` -- the headless/CLI escape hatch, no UI needed.
 """
 
 from __future__ import annotations
@@ -32,7 +30,6 @@ _runtime_set = False
 _bridge_type = None
 _locale = ""
 _bin_dir_override = None
-_bin_dir_provider = None
 _bin_dir_hint = ("Set it in the RuriRipper panel, or set the RURI_RIPPERHOOK_BIN "
                  "environment variable.")
 
@@ -54,17 +51,10 @@ def set_texture_formats(extensions):
 
 
 def set_bin_dir(path):
-    """Push the user-configured bin dir in. Takes priority over the provider and
-    over RURI_RIPPERHOOK_BIN; an empty value clears it again."""
+    """Push the user-configured bin dir in. Takes priority over RURI_RIPPERHOOK_BIN;
+    an empty value clears it again."""
     global _bin_dir_override
     _bin_dir_override = (path or "").strip() or None
-
-
-def set_bin_dir_provider(provider):
-    """Register a callable returning the configured bin dir (or None), for a
-    host that would rather be asked than push on every change."""
-    global _bin_dir_provider
-    _bin_dir_provider = provider
 
 
 def set_bin_dir_hint(hint):
@@ -75,16 +65,7 @@ def set_bin_dir_hint(hint):
 
 
 def _configured_bin_dir():
-    if _bin_dir_override:
-        return _bin_dir_override
-    if _bin_dir_provider is not None:
-        try:
-            provided = (_bin_dir_provider() or "").strip()
-        except Exception:
-            provided = ""
-        if provided:
-            return provided
-    return (os.environ.get("RURI_RIPPERHOOK_BIN") or "").strip() or None
+    return _bin_dir_override or (os.environ.get("RURI_RIPPERHOOK_BIN") or "").strip() or None
 
 
 def _dll_dir():
@@ -92,8 +73,7 @@ def _dll_dir():
     if not d:
         raise RuntimeError(
             "No Ruri-RipperHook bin dir configured (the folder containing "
-            "Ruri.RipperHook.dll, e.g. AssetRipper/Source/0Bins/AssetRipper/Release). "
-            + _bin_dir_hint)
+            "Ruri.RipperHook.dll, e.g. <checkout>/Source/0Bins/Release). " + _bin_dir_hint)
     if not os.path.isfile(os.path.join(d, "Ruri.RipperHook.dll")):
         raise RuntimeError(f"Ruri.RipperHook.dll not found in configured bin dir: {d}")
     if not os.path.isfile(os.path.join(d, "Ruri.RipperHook.CLI.runtimeconfig.json")):
@@ -558,23 +538,6 @@ class RipperBridge:
         # one decoder is ever active, which is what use_session switches.
         self.maps_by_key = {}
         self._decoder_by_key = {}
-        # {clip guid -> (meta_json, payload_bytes)} from the LAST import_cabs
-        # call -- the zero-parse curve fast path (see ClipCurveBlob.cs).
-        self.clip_curves_by_guid = {}
-        # {mesh guid -> (meta_json, payload_bytes)} -- the geometry counterpart
-        # (see MeshRawBlob.cs), same replacement policy per import_cabs call.
-        self.mesh_blobs_by_guid = {}
-        # {root guid -> hosting cab name} for the LAST import_cabs call -- the
-        # per-root CAB attribution (RipperBlenderBridge.BuildRootCabs) that lets
-        # a UNION closure's roots be split back into their sub-closures.
-        self.root_cabs_by_guid = {}
-        # {guid -> exported path (real name + extension)} for the LAST
-        # import_cabs call -- every asset's display identity.
-        self.asset_paths_by_guid = {}
-        self.texture_srgb_by_guid = {}
-        # {seed container path -> exported guid} from the LAST import_reachable
-        # call -- the placement-to-asset join (see ImportReachable).
-        self.seed_asset_guids_by_path = {}
 
     @property
     def decoder_id(self):
@@ -590,7 +553,7 @@ class RipperBridge:
 
     def reinitialize(self, decoder_id, game_root=None, source_options=None):
         """Re-apply a (possibly different) decoder onto this SAME session, preserving
-        self._map/clip_curves_by_guid -- unlike constructing a fresh RipperBridge, this does not
+        self._map -- unlike constructing a fresh RipperBridge, this does not
         drop an already-loaded cabmap. Safe/idempotent on the C# side (RipperBlenderBridge.
         Initialize -> RuriHook.ApplyHooks diffs the desired hook set against the currently
         active one and only enables/disables the delta), so this is cheap even when the decoder
@@ -776,7 +739,7 @@ class RipperBridge:
             return []
         found = []
         for seed in seeds:
-            table = self.game_data("core.deps", query=seed, direction="back", depth=0)
+            table = self.game_data("core.deps", query=seed, direction="reverse", depth=0)
             for index in range(len(table)):
                 cab = str(table.cell(index, "cab"))
                 if cab and cab not in found and cab not in seeds:
@@ -882,59 +845,24 @@ class RipperBridge:
         a performance to restate, an image to re-encode. A dataset that needs
         nothing brought gets nothing."""
         import System.Threading
-        token = cancellation if cancellation is not None             else getattr(System.Threading.CancellationToken, "None")
+        token = (cancellation if cancellation is not None
+                 else getattr(System.Threading.CancellationToken, "None"))
         return bytes(self._bridge.GameDataBlob(
             self._map, str(dataset_id), _named_args(args),
             bytes(payload or b""), token))
 
-    def release_last_import(self):
-        """Drop what the LAST closure crossing left on this side, and hand the
-        memory back to the operating system.
+    def release_statement(self, **args):
+        """The selection these statement arguments asked about has been placed: the reader
+        lets go of the flattening its tables were cut from, and hands the memory back.
 
-        Every map below holds the previous import's payload and is replaced
-        wholesale by the next one, so at the moment a new crossing starts they are
-        the previous window's geometry and nothing will read them again. Letting
-        _absorb_closure replace them at the END of the new crossing keeps the old
-        window resident right through the peak of the new one -- which is the
-        difference between a second import that fits and one that pages.
-
-        Rebound rather than cleared: a caller still holding a map it was handed
-        (BridgeAssetDatabase keeps the dicts it was built from) must keep seeing
-        what it was given, and what is genuinely still referenced is exactly what
-        should NOT be freed.
-
-        Measured, one 82-asset window re-imported in the same process: the process
-        stood at 5.19 GB after the document was emptied and comes back to 2.74 GB
-        here, of which 1.83 GB is the loaded cabmap and the decoder -- session
-        state, not the window. The collect is the aggressive, compacting one on
-        purpose: a plain GC.Collect() sweeps the same garbage but leaves the heap
-        COMMITTED (3.98 GB against 1.84 GB, measured side by side), and committed
-        memory nothing is using is exactly what a machine runs out of. It is the
-        committed heap rather than live objects that grows across imports -- it was
-        watched over eight crossings of one window and came back down on its own at
-        the fifth, so this hands back a budget the runtime is keeping, not a leak
-        it is holding."""
+        In this order. This side's wrappers over the reader's objects -- the array each
+        texture crossed as -- keep those objects alive until pythonnet's finalizer releases
+        them, and it batches that until two hundred have queued up; released first, the
+        reader's collection right after finds them unreferenced instead of walking a heap
+        whose largest objects are still held by handles nobody wants any more."""
         import gc
 
-        import System
         from Python.Runtime import Finalizer
-        self.clip_curves_by_guid = {}
-        self.mesh_blobs_by_guid = {}
-        self.root_cabs_by_guid = {}
-        self.asset_paths_by_guid = {}
-        self.texture_srgb_by_guid = {}
-        self.clip_guid_by_key = {}
-        self.seed_asset_guids_by_path = {}
-        self.closure_graph = None
-        # In this order. Dropping the references above drops PYTHON's; the .NET
-        # object behind each wrapper is only released when pythonnet's finalizer
-        # runs, and that batches until 200 of them have queued up -- so the sweep
-        # below would walk a heap whose biggest objects are still rooted by handles
-        # nobody wants any more.
         gc.collect()
         Finalizer.Instance.Collect()
-        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = \
-            System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce
-        System.GC.Collect(2, System.GCCollectionMode.Aggressive, True, True)
-        System.GC.WaitForPendingFinalizers()
-        System.GC.Collect(2, System.GCCollectionMode.Aggressive, True, True)
+        self._bridge.ReleaseStatement(self._map, _named_args(args))

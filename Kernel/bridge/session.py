@@ -38,6 +38,16 @@ def blob(dataset_id, payload=None, cancellation=None, **args):
                                     cancellation=cancellation, **args)
 
 
+def release_statement(**args):
+    """The selection a statement asked about with these arguments has been placed and nothing
+    will ask about it again: the reader lets go of the flattening its tables were cut from.
+    With no session open, nothing is held to let go."""
+    from . import cabmap_state
+
+    if cabmap_state.BRIDGE is not None:
+        cabmap_state.BRIDGE.release_statement(**args)
+
+
 def view(table_or_handle, facet="", query="", rules=None, note="", shipped_only=True,
          sort_column="", sort_direction=0, window=0, ordered=False, label_column="",
          group_column=""):

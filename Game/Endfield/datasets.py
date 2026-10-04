@@ -49,9 +49,8 @@ MORPH_CTRLS = "endfield.morph.ctrls"
 MORPH_BONES = "endfield.morph.bones"
 MORPH_SHADER_PARAMS = "endfield.morph.shaderparams"
 FACE_RETARGET = "endfield.face.retarget"
-UI_CANDIDATES = "endfield.ui.candidates"
-UI_SCHEMA = "endfield.ui.schema"
-UI_BINDINGS = "endfield.ui.bindings"
+UI_STAGES = "endfield.ui.stages"
+UI_STAGE = "endfield.ui.stage"
 STORY_UNITS = "endfield.story.units"
 STORY_CLIPS = "endfield.story.clips"
 STORY_ACTORS = "endfield.story.actors"
@@ -61,6 +60,7 @@ STORY_LINES = "endfield.story.lines"
 STORY_STAGE = "endfield.story.stage"
 SCENE_ENVIRONMENT = "endfield.scene.environment"
 SCENE_AMBIENT = "endfield.scene.ambient"
+SCENE_ANCHOR = "endfield.scene.anchor"
 SCENE_GLOBALS = "endfield.scene.globals"
 SCENE_IRRADIANCE = "endfield.scene.irradiance"
 SCENE_REFLECTION = "endfield.scene.reflection"
@@ -80,6 +80,12 @@ DECAL_LISTS = "_DecalLists"
 PROBE_RANGE = "_ReflectionProbeRange"
 PROBE_LISTS = "_ReflectionProbeLists"
 SCENE_REFLECTION_BOXES = "endfield.scene.reflection_boxes"
+SCENE_WATER_WETNESS = "endfield.scene.water_wetness"
+SCENE_WATER_WETNESS_BOXES = "endfield.scene.water_wetness_boxes"
+#: The names the game's scene stack reads its water wetness mask through: the per-object global
+#: holding an object's run of water proxy triangles, and the data table those runs go into.
+WETNESS_RANGE = "_WaterWetnessRange"
+WETNESS_LISTS = "_WaterWetnessLists"
 
 
 def _table(dataset_id, **args):
@@ -295,8 +301,8 @@ def scene_environment(map_name, anchor, states):
                     "coefficients": [[float(entry[channel]) for entry in sky]
                                      for channel in ("r", "g", "b")]},
         "light": [
-            (staging.LIGHT_DIRECTION, {"x": number("lightX"), "y": number("lightY"), "z": number("lightZ")}),
-            (staging.LIGHT_COLOR, {"r": number("lightR"), "g": number("lightG"), "b": number("lightB")}),
+            (staging.LIGHT_DIRECTION, (number("lightX"), number("lightY"), number("lightZ"))),
+            (staging.LIGHT_COLOR, (number("lightR"), number("lightG"), number("lightB"))),
             (staging.LIGHT_ENERGY, number("lightIntensity")),
             (staging.LIGHT_ANGLE, number("lightRadius")),
             (staging.LIGHT_SHADOWS, number("lightShadows")),
@@ -355,6 +361,26 @@ def scene_decal_boxes(map_name, rect, states):
     return [[float(row["o{0}".format(index)]) for index in range(16)] for row in rows]
 
 
+def scene_water_wetness(map_name, rect, states):
+    """What the game's water wetness pass draws with for one world rect of the map in the given scene
+    states -- every water proxy triangle with its proxy's parameters, the pass's 3D noise and whether it
+    runs, a level-resources payload the host applies as it is."""
+    min_x, min_z, max_x, max_z = rect
+    return cabmap_state.BRIDGE.game_data_blob(
+        SCENE_WATER_WETNESS, map=map_name, minX=min_x, minZ=min_z, maxX=max_x, maxZ=max_z,
+        sceneState=[str(state) for state in states])
+
+
+def scene_water_wetness_boxes(map_name, rect, states):
+    """The same water proxy triangles in the payload's order, in the shape
+    :meth:`Kernel.host.SceneGraph.apply_box_lists` takes: per triangle, the column-major matrix taking
+    the unit cube onto the region its wetness mask can change, in the game's own world."""
+    min_x, min_z, max_x, max_z = rect
+    rows = _rows(SCENE_WATER_WETNESS_BOXES, map=map_name, minX=min_x, minZ=min_z, maxX=max_x, maxZ=max_z,
+                 sceneState=[str(state) for state in states])
+    return [[float(row["o{0}".format(index)]) for index in range(16)] for row in rows]
+
+
 def scene_reflection_boxes(map_name, anchor, states):
     """The boxes of the reflection probes a viewer at ``anchor`` binds, in slot order from slot 1, in the
     shape :meth:`Kernel.host.SceneGraph.apply_box_lists` takes: per probe, the column-major matrix taking
@@ -381,14 +407,17 @@ def scene_shadow_ramp(map_name, anchor, states):
         SCENE_SHADOW_RAMP, map=map_name, x=x, y=y, z=z, states=[str(state) for state in states])
 
 
-def scene_water(map_name, anchor, states):
+def scene_water(map_name, rect, anchor, states):
     """What the level's water passes read where a viewer at ``anchor`` (a point in the game's own
-    world) stands, in the given scene states -- the water data array, its LOD parameters and its
-    textures, a level-resources payload the host applies as it is. A level without water states
-    only its LOD parameters."""
+    world) stands over one world rect, in the given scene states -- the water data array (the level's
+    own configurations and those of the rect's planes), its LOD parameters and its textures, a
+    level-resources payload the host applies as it is. A level without water states only its LOD
+    parameters."""
+    min_x, min_z, max_x, max_z = rect
     x, y, z = anchor
     return cabmap_state.BRIDGE.game_data_blob(
-        SCENE_WATER, map=map_name, x=x, y=y, z=z, states=[str(state) for state in states])
+        SCENE_WATER, map=map_name, minX=min_x, minZ=min_z, maxX=max_x, maxZ=max_z,
+        sceneState=[str(state) for state in states], x=x, y=y, z=z)
 
 
 def scene_reflection(map_name, anchor, states):
@@ -554,6 +583,17 @@ def placements(map_name, min_x, min_z, max_x, max_z, scene_state_ids, detail_lev
     }
 
 
+def scene_anchor(map_name, min_x, min_z, max_x, max_z, scene_state_ids, detail_level, viewer):
+    """Where the hook resolves one window's camera-centred state (``endfield.scene.anchor``) for a document looked
+    at from ``viewer`` (a point in the source's world, or None): ``((x, y, z), from_view)``."""
+    window = {"map": map_name, "minX": min_x, "minZ": min_z, "maxX": max_x, "maxZ": max_z,
+              "sceneState": list(scene_state_ids), "detailLevel": int(detail_level), "hasViewer": viewer is not None}
+    if viewer is not None:
+        window.update(viewerX=viewer[0], viewerY=viewer[1], viewerZ=viewer[2])
+    row = _rows(SCENE_ANCHOR, **window)[0]
+    return (float(row["x"]), float(row["y"]), float(row["z"])), bool(int(float(row["fromView"])))
+
+
 # ── resolving a name to the rows that hold it ───────────────────────────────
 
 def character_model_cabs():
@@ -582,9 +622,10 @@ def morph_library():
 
 
 def morph_assets(cabs):
-    """The pose/emotion/animation/lipsync assets these CABs carry. Which of the
-    four an asset IS comes from the fields it carries, which is the hook's read."""
-    return [{"name": row["name"], "kind": row["kind"], "duration": row["duration"],
+    """The pose/emotion/animation/lipsync assets these CABs carry, each with the
+    archive it was read from. Which of the four an asset IS comes from the fields it
+    carries, which is the hook's read."""
+    return [{"name": row["name"], "kind": row["kind"], "cab": row["cab"], "duration": row["duration"],
              "animated": bool(_int(row["animated"]))}
             for row in _rows(MORPH_ASSETS, cab=list(cabs))]
 
@@ -668,28 +709,16 @@ def morph_shader_params(cabs):
 
 # ── ui display stages ───────────────────────────────────────────────────────
 
-def ui_candidates():
-    """The assets a display stage is made of, and the stage prefab of each folder.
-    Where they live and which prefab IS the stage are the game's own filing."""
-    return _rows(UI_CANDIDATES)
+def ui_stages():
+    """Every display stage the game ships, one row each -- a table a panel draws as it is."""
+    return _table(UI_STAGES)
 
 
-def ui_schema():
-    """{role: [value]} -- what a stage is made of in the game's own class names,
-    and how it names the two halves of one stage."""
-    schema = {}
-    for row in _rows(UI_SCHEMA):
-        schema.setdefault(row["role"], []).append(row["value"])
-    return schema
-
-
-def ui_bindings():
-    """Where a stage's own values land in the host: one row per (source field,
-    host target). ``gate`` is 'override' for a value that only counts when the
-    volume actually overrides it."""
-    return [{"source": row["source"], "target": row["target"], "slot": _int(row["slot"]),
-             "components": row["components"], "gate": row["gate"]}
-            for row in _rows(UI_BINDINGS)]
+def ui_stage(stage):
+    """One display stage, resolved by the hook: one row per value it states. ``kind`` says what the
+    row is -- a light or world value (``env``), a character parameter (``param``) or a seed of the
+    stage's own art (``prefab``) -- and ``components`` how many of x..w it carries."""
+    return _rows(UI_STAGE, stage=stage)
 
 
 # ── npcs and characters ─────────────────────────────────────────────────────
@@ -712,22 +741,5 @@ def npc_parts(template_id):
 def character_models(cabs):
     """{character id: {model, tag, asset}} -- a character's model prefab is not
     derivable from its id, so its own data asset is the only source."""
-    texts = _mono_behaviour_texts(cabs)
-    if not texts:
-        return {}
     return {row["characterId"]: {"model": row["model"], "tag": row["tag"], "asset": row["asset"]}
-            for row in _rows(CHARACTER_MODELS, assetText=texts)}
-
-
-def _mono_behaviour_texts(cabs):
-    """The serialized text of every MonoBehaviour in a set of CABs.
-
-    These two readers parse a data asset's fields out of its text rather than off
-    the typed object, so text IS their input. Producing it needs no game
-    knowledge, which is why it is one published dataset every title shares
-    rather than a bridge method of its own."""
-    cabs = list(cabs)
-    if not cabs or cabmap_state.BRIDGE is None:
-        return []
-    table = cabmap_state.BRIDGE.game_data("core.assets.text", cab=cabs)
-    return [str(table.cell(index, "text")) for index in range(len(table))]
+            for row in _rows(CHARACTER_MODELS, cab=list(cabs))}
