@@ -14,9 +14,10 @@ before an import wires a shader. A shelf that does not carry a stack is left alo
 shader on a shelf is the person's choice, keeping it current is not.
 
 And every instance of the open project that runs one of those shaders is moved onto the
-shelf's copy when the project is ready and after a sync copied anything. Painter keeps an
-instance's values across the move, by name; a value the new generation no longer declares
-goes with the old one.
+shelf's copy when the project is ready and whenever a shelf finishes reading the disk -- a
+file copied at start is not a resource until that crawl ends, and a project opened before it
+ends finds nothing to move to. Painter keeps an instance's values across the move, by name; a
+value the new generation no longer declares goes with the old one.
 """
 
 from __future__ import annotations
@@ -114,9 +115,11 @@ def _announce(report):
 
 
 def _on_shelf_read(_event):
+    """A shelf finished reading the disk: the copy a sync made earlier -- at start, before this
+    crawl -- is a resource only now, so the open project follows it now too."""
     report = []
-    if sync(report):
-        follow(report)
+    sync(report)
+    follow(report)
     _announce(report)
 
 
