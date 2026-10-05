@@ -16,8 +16,12 @@ shader on a shelf is the person's choice, keeping it current is not.
 And every instance of the open project that runs one of those shaders is moved onto the
 shelf's copy when the project is ready and whenever a shelf finishes reading the disk -- a
 file copied at start is not a resource until that crawl ends, and a project opened before it
-ends finds nothing to move to. Painter keeps an instance's values across the move, by name; a
-value the new generation no longer declares goes with the old one.
+ends finds nothing to move to. A crawl that ends while a project is still opening or closing
+leaves it to the project's own ready event, and one that ends while a save holds the project
+-- from the moment it is announced until after it says it is done, a save answers no question
+about the project's shaders -- has its move made once the save has returned. Painter keeps an
+instance's values across the move, by name; a value the new generation no longer declares
+goes with the old one.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+
+from PySide6 import QtCore
 
 import substance_painter.event
 import substance_painter.exception
@@ -86,7 +92,7 @@ def _shelf_shader(name, shelves):
 def follow(report):
     """Move every instance of the open project that runs a generated shader onto the shelf's
     copy of it. Returns how many instances moved."""
-    if not substance_painter.project.is_open():
+    if not substance_painter.project.is_open() or not substance_painter.project.is_in_edition_state():
         return 0
     shelves = {shelf.name() for shelf in substance_painter.resource.Shelves.all()}
     shelved = {}
@@ -114,26 +120,62 @@ def _announce(report):
         host.log(host_port.ERROR if line.startswith("!!") else host_port.INFO, line)
 
 
+_save = {"in_flight": False, "follow_due": False}
+
+
+def _follow_now():
+    report = []
+    follow(report)
+    _announce(report)
+
+
 def _on_shelf_read(_event):
     """A shelf finished reading the disk: the copy a sync made earlier -- at start, before this
-    crawl -- is a resource only now, so the open project follows it now too."""
+    crawl -- is a resource only now, so the open project follows it now too, or once the save
+    holding it is done."""
     report = []
     sync(report)
-    follow(report)
+    if _save["in_flight"]:
+        _save["follow_due"] = True
+    else:
+        follow(report)
     _announce(report)
 
 
 def _on_project_ready(_event):
-    report = []
-    follow(report)
-    _announce(report)
+    _save["in_flight"] = False
+    _follow_now()
+
+
+def _on_save_announced(_event):
+    _save["in_flight"] = True
+
+
+def _on_saved(_event):
+    """The save lets go of the project when control is back in the event loop."""
+    QtCore.QTimer.singleShot(0, _save_released)
+
+
+def _save_released():
+    _save["in_flight"] = False
+    if _save["follow_due"]:
+        _save["follow_due"] = False
+        _follow_now()
+
+
+_EVENTS = (
+    (substance_painter.event.ShelfCrawlingEnded, _on_shelf_read),
+    (substance_painter.event.ProjectEditionEntered, _on_project_ready),
+    (substance_painter.event.ProjectAboutToSave, _on_save_announced),
+    (substance_painter.event.ProjectSaved, _on_saved),
+)
 
 
 def start():
     """Sync now if the shelves are up, and again each time one finishes reading the disk;
     follow the shelves with each project as it becomes ready."""
-    substance_painter.event.DISPATCHER.connect(substance_painter.event.ShelfCrawlingEnded, _on_shelf_read)
-    substance_painter.event.DISPATCHER.connect(substance_painter.event.ProjectEditionEntered, _on_project_ready)
+    for event, handler in _EVENTS:
+        substance_painter.event.DISPATCHER.connect(event, handler)
     report = []
     try:
         sync(report)
@@ -143,5 +185,5 @@ def start():
 
 
 def stop():
-    substance_painter.event.DISPATCHER.disconnect(substance_painter.event.ShelfCrawlingEnded, _on_shelf_read)
-    substance_painter.event.DISPATCHER.disconnect(substance_painter.event.ProjectEditionEntered, _on_project_ready)
+    for event, handler in _EVENTS:
+        substance_painter.event.DISPATCHER.disconnect(event, handler)
