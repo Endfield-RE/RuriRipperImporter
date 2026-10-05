@@ -212,6 +212,8 @@ uniform mat4 uniform_camera_view_matrix;
 uniform float environment_max_lod;
 //: param auto facing
 uniform int uniform_facing;
+//: param auto main_light
+uniform vec4 light_main;
 
 //----------------------------------------------------------------------region 宿主输入(投影方案派生)
 //: param auto channel_basecolor
@@ -562,13 +564,7 @@ RuriGBufferData ruriZeroRuriGBufferData() {
 SparseCoord ruriSparseCoord;
 
 //----------------------------------------------------------------------region 宿主胶水(配方)
-// 主光由桥按 Blender 场上的主光写:朝灯方向(本宿主世界系)、颜色、强度;缺省是 Blender 场上没有灯时兜底 Sun 的方向。
-//: param custom { "default": [0.0247, 0.569, 0.822], "label": "主光朝向(朝灯)", "min": -1.0, "max": 1.0, "group": "0 光照" }
-uniform vec3 v_MainLightDirection;
-//: param custom { "default": [1.0, 1.0, 1.0], "label": "主光颜色", "widget": "color", "group": "0 光照" }
-uniform vec3 v_MainLightColor;
-//: param custom { "default": 1.0, "label": "主光强度", "min": 0.0, "max": 10.0, "group": "0 光照" }
-uniform float f_MainLightIntensity;
+// 主光是本宿主自己的主光:环境的主光方向(世界系,随显示设置里的环境旋转一起转)、颜色恒白、不衰减不投影 —— 与宿主自带着色器照的是同一盏。
 //: param custom { "default": 0.0, "label": "时间 Time", "min": 0.0, "max": 100.0, "group": "0 光照" }
 uniform float f_RuriTime;
 // 物体→世界。本宿主一棵着色器服务整个模型,没有「物体」可问,所以这三列由桥算好随材质行过来(它同时知道物体摆位、负载根节点为对齐 Y 轴带的旋转、以及两种物体空间约定之间的 Y/Z 互换——那是个反射不是旋转,所以假定单位阵不是「转错了」而是「左右反了」)。缺省是单位阵:没人告诉就跟从前一模一样。
@@ -608,8 +604,8 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 #define UNITY_MATRIX_I_V (inverse(uniform_camera_view_matrix))
 #define UNITY_MATRIX_M (ruriObjectToWorld())
 #define UNITY_MATRIX_V (uniform_camera_view_matrix)
-#define _MainLightColor (vec4(v_MainLightColor * f_MainLightIntensity, 1.0))
-#define _MainLightPosition (vec4(normalize(v_MainLightDirection), 0.0))
+#define _MainLightColor (vec4(1.0, 1.0, 1.0, 1.0))
+#define _MainLightPosition (vec4(normalize(light_main.xyz), 0.0))
 #define _ScaledScreenParams (vec4(1920.0, 1080.0, 1.0 + 1.0/1920.0, 1.0 + 1.0/1080.0))
 #define _WorldSpaceCameraPos (camera_pos)
 #define unity_LightData (vec4(0.0, 0.0, 1.0, 0.0))
