@@ -212,8 +212,6 @@ uniform mat4 uniform_camera_view_matrix;
 uniform float environment_max_lod;
 //: param auto facing
 uniform int uniform_facing;
-//: param auto main_light
-uniform vec4 light_main;
 
 //----------------------------------------------------------------------region 宿主输入(投影方案派生)
 //: param auto channel_basecolor
@@ -564,19 +562,15 @@ RuriGBufferData ruriZeroRuriGBufferData() {
 SparseCoord ruriSparseCoord;
 
 //----------------------------------------------------------------------region 宿主胶水(配方)
-//: param custom { "default": 0, "label": "灯光旋转 X", "min": 0, "max": 360, "group": "0 光照" }
-uniform int i_LightRotX;
-//: param custom { "default": 30, "label": "灯光旋转 Y", "min": 0, "max": 360, "group": "0 光照" }
-uniform int i_LightRotY;
-//: param custom { "default": 0, "label": "灯光旋转 Z", "min": 0, "max": 360, "group": "0 光照" }
-uniform int i_LightRotZ;
+// 主光由桥按 Blender 场上的主光写:朝灯方向(本宿主世界系)、颜色、强度;缺省是 Blender 场上没有灯时兜底 Sun 的方向。
+//: param custom { "default": [0.0247, 0.569, 0.822], "label": "主光朝向(朝灯)", "min": -1.0, "max": 1.0, "group": "0 光照" }
+uniform vec3 v_MainLightDirection;
 //: param custom { "default": [1.0, 1.0, 1.0], "label": "主光颜色", "widget": "color", "group": "0 光照" }
 uniform vec3 v_MainLightColor;
+//: param custom { "default": 1.0, "label": "主光强度", "min": 0.0, "max": 10.0, "group": "0 光照" }
+uniform float f_MainLightIntensity;
 //: param custom { "default": 0.0, "label": "时间 Time", "min": 0.0, "max": 100.0, "group": "0 光照" }
 uniform float f_RuriTime;
-mat3 ruriRotX(float r) { float c = cos(r), s = sin(r); return mat3(1,0,0, 0,c,s, 0,-s,c); }
-mat3 ruriRotY(float r) { float c = cos(r), s = sin(r); return mat3(c,0,-s, 0,1,0, s,0,c); }
-mat3 ruriRotZ(float r) { float c = cos(r), s = sin(r); return mat3(c,s,0, -s,c,0, 0,0,1); }
 // 物体→世界。本宿主一棵着色器服务整个模型,没有「物体」可问,所以这三列由桥算好随材质行过来(它同时知道物体摆位、负载根节点为对齐 Y 轴带的旋转、以及两种物体空间约定之间的 Y/Z 互换——那是个反射不是旋转,所以假定单位阵不是「转错了」而是「左右反了」)。缺省是单位阵:没人告诉就跟从前一模一样。
 //: param custom { "default": [1, 0, 0, 0], "label": "物体→世界 列0", "group": "R 引擎态" }
 uniform vec4 i_ObjectToWorld0;
@@ -586,10 +580,6 @@ uniform vec4 i_ObjectToWorld1;
 uniform vec4 i_ObjectToWorld2;
 mat4 ruriObjectToWorld() {
     return mat4(i_ObjectToWorld0, i_ObjectToWorld1, i_ObjectToWorld2, vec4(0.0, 0.0, 0.0, 1.0));
-}
-vec3 ruriMainLightDir() {
-    mat3 rot = ruriRotY(radians(float(i_LightRotY))) * ruriRotX(radians(float(i_LightRotX))) * ruriRotZ(radians(float(i_LightRotZ)));
-    return normalize(rot * light_main.xyz);
 }
 // 单趟等价:F 腿回读的 gbuffer 就是本表面 G 腿写入的自身数据 —— 直接用本片元的表面态回声。
 GBufferData ruriSelfGBuffer(RuriData rd) {
@@ -618,8 +608,8 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 #define UNITY_MATRIX_I_V (inverse(uniform_camera_view_matrix))
 #define UNITY_MATRIX_M (ruriObjectToWorld())
 #define UNITY_MATRIX_V (uniform_camera_view_matrix)
-#define _MainLightColor (vec4(v_MainLightColor, 1.0))
-#define _MainLightPosition (vec4(ruriMainLightDir(), 0.0))
+#define _MainLightColor (vec4(v_MainLightColor * f_MainLightIntensity, 1.0))
+#define _MainLightPosition (vec4(normalize(v_MainLightDirection), 0.0))
 #define _ScaledScreenParams (vec4(1920.0, 1080.0, 1.0 + 1.0/1920.0, 1.0 + 1.0/1080.0))
 #define _WorldSpaceCameraPos (camera_pos)
 #define unity_LightData (vec4(0.0, 0.0, 1.0, 0.0))
@@ -649,30 +639,6 @@ float ruriBakedOcclusion(SparseCoord coord, float absent)
 vec3 ruriBakedNormal(SparseCoord coord, vec3 absent)
 {
     return (base_normal_texture.is_set || normal_texture.is_set || height_texture.is_set) ? getTSNormal(coord) : absent;
-}
-
-vec3 ruriPrefilteredEnvironment(vec3 directionWS, float perceptualRoughness)
-{
-    vec3 reflection = normalize(worldToEnvSpace(directionWS));
-    if (perceptualRoughness < 0.01)
-        return envSample(reflection, 0.0);
-    vec3 tangent = normalize(cross(abs(reflection.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), reflection));
-    vec3 bitangent = cross(reflection, tangent);
-    vec3 radiance = vec3(0.0);
-    float weight = 0.0;
-    for (int i = 0; i < nbSamples; ++i)
-    {
-        vec3 halfway = importanceSampleGGX(fibonacci2DDitheredTemporal(i, nbSamples), tangent, bitangent, reflection, perceptualRoughness);
-        vec3 incoming = -reflect(reflection, halfway);
-        float ndl = dot(reflection, incoming);
-        if (ndl > 0.0)
-        {
-            float ndh = max(1e-8, dot(reflection, halfway));
-            radiance += envSample(incoming, computeLOD(incoming, probabilityGGX(ndh, ndh, perceptualRoughness))) * ndl;
-            weight += ndl;
-        }
-    }
-    return weight > 0.0 ? radiance / weight : envSample(reflection, 0.0);
 }
 
 vec4 ruriTransparentFrame(vec3 factor, float coverage)
@@ -707,14 +673,6 @@ float4 ruriRead_RMOSMap(float2 uv) {
 }
 
 //----------------------------------------------------------------------endregion
-
-// 环境 cube 是引擎烘的反射探针:第 m 层按 URP 的 <c>MipmapLevelToPerceptualRoughness</c> 预滤波
-// (ImageBasedLighting.hlsl,UNITY_SPECCUBE_LOD_STEPS = 6,共 7 层卷积)。真源按 <c>roughness·6</c> 取层,
-// 读到的就是这一层的预滤波。
-float CubeMipToPerceptualRoughness_GirlsFrontline(float mip)
-{
-    return saturate(1.7 / 1.4 - sqrt(2.89 / 1.96 - (2.8 / 1.96) * saturate(mip / 6.0)));
-}
 
 vec3 UnpackNormalScale(vec4 packedNormal, float bumpScale)
 {
@@ -1103,7 +1061,7 @@ vec3 GirlsFrontline_EnvironmentSpecular(vec3 specularColor, float roughness, flo
         offset = textureLod(_RampMap, ruriUvClamp(_RampMap, float2(environmentBRDF.y * saturate(dot(normalWS, lightSide)), 0.625)), 0.0).x;
     }
     vec3 reflectDirection = reflect(-viewDirectionWS, normalWS);
-    vec4 encodedIrradiance = vec4(ruriPrefilteredEnvironment(reflectDirection, CubeMipToPerceptualRoughness_GirlsFrontline(roughness * 6.0)), 1.0);
+    vec4 encodedIrradiance = vec4(0.2158605, 0.2158605, 0.2158605, 0.5);
     vec3 probeColor = DecodeHDREnvironment(encodedIrradiance, unity_SpecCube0_HDR);
     return probeColor * (specularColor * environmentBRDF.x + offset);
 }
