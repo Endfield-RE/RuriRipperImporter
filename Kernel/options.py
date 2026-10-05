@@ -109,15 +109,10 @@ SCHEMA = (
     Option("texture_resolution", INT, 2048, "Texture Resolution",
            "Working resolution of the texture sets the project is created with",
            requires=host_port.TextureSets, choices=(512, 1024, 2048, 4096)),
-    Option("apply_environment", BOOL, True, "Set Environment",
-           "Set the reflection environment the ported shader documents as its requirement",
-           requires=host_port.DisplaySettings),
-    Option("apply_color_lut", BOOL, True, "Set Colour LUT",
-           "Load the grading strip shipped beside the shader",
-           requires=host_port.DisplaySettings),
-    Option("force_linear_tonemap", BOOL, True, "Force Linear Tone Mapping",
-           "The ported shader applies the game's tonemap itself; leaving the display tone "
-           "mapping on anything but Linear applies it twice",
+    Option("neutral_display", BOOL, True, "Neutral Display",
+           "The ported shader writes the final picture -- it applies the game's own tonemap, "
+           "as Blender's compositor does -- so the display keeps Linear tone mapping and no "
+           "colour LUT; either one would change the picture a second time",
            requires=host_port.DisplaySettings),
 )
 

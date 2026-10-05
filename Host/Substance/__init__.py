@@ -165,7 +165,7 @@ from . import settings                                             # noqa: E402
 # before anything that imports numpy -- which the importer transitively does.
 kernel_bootstrap.configure()
 
-from . import dock, render                                         # noqa: E402
+from . import dock, render, shelf_sync                             # noqa: E402
 
 #: Modules whose globals track real, expensive or unrepeatable process state: a
 #: CoreCLR runtime that can never be re-claimed once set, an installed runtime
@@ -197,7 +197,7 @@ def reload_modules():
     _reload_tree(ADDON + ".Kernel")
     _reload_tree(ADDON + ".Kernel")
     for name in ("settings", "render", "gltf_writer", "model_builder", "unity_material",
-                 "manifest_plan", "texture_pipeline", "sp_apply", "importer",
+                 "manifest_plan", "texture_pipeline", "shelf_sync", "sp_apply", "importer",
                  "packages", "shader", "dock"):
         module = sys.modules.get(__name__ + "." + name)
         if module is not None:
@@ -220,6 +220,7 @@ def start_plugin():
     from ...Kernel.app import browser, look
     from ... import Game
     from . import display_panel
+    shelf_sync.start()
     browser.register()
     # This host's own answer to "what does the frame finally look like": its
     # display is a fixed set of choices rather than a graph, and the ported shader
@@ -255,6 +256,7 @@ def close_plugin():
     look.drop_section("display")
     display_panel.unregister()
     browser.unregister()
+    shelf_sync.stop()
 
 
 def _dock_into_side_strip(placed):

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import traceback
 
 import substance_painter.event
@@ -30,16 +29,15 @@ import substance_painter.source
 import substance_painter.textureset
 import substance_painter.ui
 
+import _substance_painter.display as _native_display
 import substance_painter.display as _display
 
-from . import planning, settings, shader
+from . import planning, settings, shader, shelf_sync
 
 FILL_LAYER_NAME = "RuriAutoTex"
 LOG_CHANNEL = "RuriRipper"
 
 shader_path = shader.source_path
-environment_path = shader.environment_path
-color_lut_path = shader.color_lut_path
 
 
 def log(message):
@@ -290,56 +288,10 @@ def find_or_insert_fill(stack):
 # ---------------------------------------------------------------------------
 # Shader resource
 # ---------------------------------------------------------------------------
-def _sync_shader_to_shelves(report):
-    """The bundled shader is the truth; Painter's shelf import COPIES it, so editing
-    the bundled files would otherwise never take effect. A content-level sync on
-    every run makes Painter notice the change and recompile (hot reload).
-
-    The shader and the manifest the generator wrote beside it are one product: the
-    manifest is what anything reading the shelf asks which textures are channels
-    and which generation of the shader this is. A shelf holding this run's shader
-    beside last month's manifest answers both questions wrong, and silently."""
-    product = [shader_path(), shader.manifest_path()]
-    if not all(os.path.isfile(path) for path in product):
-        return
-    shelves_cls = getattr(substance_painter.resource, "Shelves", None)
-    if shelves_cls is None:
-        return
-    try:
-        shelves = shelves_cls.all()
-    except Exception:
-        return
-    for shelf in shelves:
-        try:
-            root = shelf.path() if callable(getattr(shelf, "path", None)) else None
-        except Exception:
-            continue
-        if not root:
-            continue
-        folder = os.path.join(root, "shaders")
-        if not os.path.isfile(os.path.join(folder, shader.name() + ".glsl")):
-            continue
-        for source_path in product:
-            candidate = os.path.join(folder, os.path.basename(source_path))
-            try:
-                with open(source_path, "rb") as handle:
-                    source = handle.read()
-                current = b""
-                if os.path.isfile(candidate):
-                    with open(candidate, "rb") as handle:
-                        current = handle.read()
-                if current != source:
-                    shutil.copyfile(source_path, candidate)
-                    report.append("synced {0} into the shelf: {1}".format(
-                        os.path.basename(source_path), candidate))
-            except OSError as exc:
-                report.append("!! shelf sync failed {0}: {1}".format(candidate, exc))
-
-
 def find_shader_resource(report):
     """The EndField_Uber shader resource, imported from the plugin's own shader
     folder when the shelf does not already carry it."""
-    _sync_shader_to_shelves(report)
+    shelf_sync.sync(report)
     for query in ("u:shader " + shader.name(), shader.name()):
         try:
             for resource in substance_painter.resource.search(query):
@@ -558,77 +510,32 @@ def setup_shader_instances(set_payloads, report):
 # Display settings
 # ---------------------------------------------------------------------------
 def apply_display_settings(report, options=None):
-    """Hang the shader's companion environment/LUT and force the tone mapping
-    the port requires.
+    """Leave the shader's output to the display untouched.
 
     ``options`` is the same dict every other stage is handed -- the switches
     live on the panel and travel with the job. Reading the settings store here
     instead meant three switches nothing ever wrote and therefore three
     switches that did nothing.
 
-    CharCubemap.exr is the environment the characters reflect. The source's reflection
-    cubes are runtime globals no Painter shader can bind; the generated shader answers
-    a cube read with this environment, prefiltered with this application's own
-    importance sampling at the roughness the source's mip stands for (the style's
-    declared mip law) -- the environment's own mip chain is plain downsampling, not
-    the source's prefiltered levels. The HG post tonemap is built INTO the shader
-    ([H9]), so Painter's display tone mapping must be Linear or it is applied twice."""
+    The generated shader's last step is the game's own output transform, the same one
+    Blender's compositor applies, so what it writes is final: a display tone mapping
+    other than Linear applies a second curve, and a colour LUT grades on top of a
+    picture Blender shows ungraded. Neither is the shader's -- the reflections it reads
+    are not the display environment either, so nothing here sets one."""
     options = settings.import_options() if options is None else options
-    if _display is None or getattr(_display, "set_environment_resource", None) is None:
-        report.append("note: this Painter build has no display API -- set the environment "
-                      "to shader/CharCubemap.exr and the tone mapping to Linear by hand.")
+    if not options.get("neutral_display", True):
         return
-
-    def _import(path, usage_name):
-        usage = getattr(substance_painter.resource.Usage, usage_name, None)
-        if usage is None or not os.path.isfile(path):
-            return None
-        stem = os.path.splitext(os.path.basename(path))[0]
-        try:
-            for resource in substance_painter.resource.search(stem):
-                rid = _rid(resource)
-                if _rid_field(rid, "name") == stem:
-                    return rid
-        except Exception:
-            pass
-        try:
-            return _rid(substance_painter.resource.import_session_resource(path, usage))
-        except Exception as exc:
-            report.append("!! could not import {0}: {1}".format(os.path.basename(path), exc))
-            return None
-
-    if options.get("apply_environment", True):
-        rid = _import(environment_path(), "ENVIRONMENT")
-        if rid is not None:
-            try:
-                _display.set_environment_resource(rid)
-                report.append("environment map set to CharCubemap.exr")
-            except Exception as exc:
-                report.append("!! set_environment_resource failed: {0}".format(exc))
-
-    if options.get("apply_color_lut", True):
-        rid = _import(color_lut_path(), "COLOR_LUT")
-        if rid is not None:
-            try:
-                _display.set_color_lut_resource(rid)
-                report.append("colour LUT set to CharShowLut3D.tga")
-            except Exception as exc:
-                report.append("!! set_color_lut_resource failed: {0}".format(exc))
-
-    # EndField_Uber runs its own Endfield ACES tonemap ([H9], u_UseEndfieldTonemap),
-    # so Painter must NOT tonemap again -- Linear is the correct display setting.
-    if options.get("force_linear_tonemap", True):
-        try:
-            linear = getattr(_display.ToneMappingFunction, "Linear", None)
-            if linear is not None:
-                _display.set_tone_mapping(linear)
-                report.append("display tone mapping forced to Linear "
-                              "(EndField_Uber does the tonemap itself -- see [H9])")
-        except RuntimeError:
-            report.append("note: the project is colour managed, so the display tone mapping "
-                          "cannot be set -- disable colour management to avoid a double tonemap.")
-        except Exception as exc:
-            report.append("!! set_tone_mapping failed: {0}".format(exc))
+    try:
+        _display.set_tone_mapping(_display.ToneMappingFunction.Linear)
+        report.append("display tone mapping set to Linear (the shader applies the game's tonemap itself)")
+    except RuntimeError:
+        report.append("!! the project is colour managed, so its display tone mapping cannot be set: "
+                      "the game's tonemap is applied twice until colour management is turned off")
+    lut = _display.get_color_lut_resource()
+    if lut is not None:
+        # The public API takes only a resource; clearing is the native call its own panel makes.
+        _native_display.set_color_lut_resource("")
+        report.append("colour LUT {0} removed (it graded the shader's final output again)".format(lut.name))
 
 
 # ---------------------------------------------------------------------------
