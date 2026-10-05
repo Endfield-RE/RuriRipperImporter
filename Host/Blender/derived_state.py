@@ -1,8 +1,7 @@
 """场景派生态的唯一调度器 —— 「什么时候重建 Ruri 生成的场景衍生物」只在这里回答一次。
 
 派生态 = 不是从资产直接读出来、而是**由场景真值算出来**的东西:顶点腿的拓扑(壳层位移 /
-反壳描边)、它那几格相机 uniform、脸部骨骼基座、材质的环境查询兑现节点、主光身份、
-合成器后处理链。它们的共同点是「输入变了就必须重算,不重算画面静默错」。
+反壳描边)、它那几格相机 uniform、脸部骨骼基座、材质的环境查询兑现节点、合成器后处理链。它们的共同点是「输入变了就必须重算,不重算画面静默错」。
 
 ## 拓扑只认导入,uniform 才认相机(2026-09-19 用户钦定)
 
@@ -38,12 +37,12 @@ announce ⇒ 修改器只在从游戏导入时生成;相机动了、骨改名了
   这里只认注册表,不认任何游戏)。
 
 阶段本体不在这里:生成的着色栈自己 `register_vertex_stage` / `register_capability_rewire`
-/ `register_light_role_refresh` / `register_post_stage`(那是生成器拥有的契约)。本模块
+/ `register_post_stage`(那是生成器拥有的契约)。本模块
 只拥有**时机**:谁在什么变更下跑、跑在哪个范围上。
 
 ## 插件数据从不写进 .blend(见 plugin_data)
 
-所以打开一个文件时派生态一样都不在:材质的树(模板组是插件数据)、顶点树、合成树、视点、兜底灯。
+所以打开一个文件时派生态一样都不在:材质的树(模板组是插件数据)、顶点树、合成树、视点。
 LOADED 这件事实由开文件与本调度器注册(着色栈刚载入)立起来,第一段阶段(plugin-data)先清光内存里的插件数据、
 再让各栈按材质记录把材质全部现编,其余阶段照常按整场景现建。存盘时文件里什么也不留,下一次打开照样全建 ——
 没有任何一份派生物会在文件里放旧。从别的文件 append 进来的材质与对象(APPENDED)带着的树同样是死的,只编那些。
@@ -61,22 +60,19 @@ import traceback
 
 import bpy
 
-from . import material_builder
+from . import material_builder, shadow_casting
 
 
 # ---- 事实 ----
 OBJECTS = "objects"            # 有新对象进场
 MATERIALS = "materials"        # 有新材质进场
 CAMERA = "camera"              # 活动相机的身份/位姿/投影/输出分辨率
-LIGHT_SET = "light_set"        # 灯的增删/类型/可见性(只影响谁是主光,零重接)
-LIGHT_VALUES = "light_values"  # 灯的位姿/颜色/强度/锥角/镜面倍率(宿主自己读灯,这里重挑主光、重写灯上维护的那几格)
 WORLD = "world"                # 世界被换或被改(环境采样是建组时快照,只有这件事还要重接兑现面)
 RIG = "rig"                    # 骨架的骨骼名册变了(顶点腿的骨骼基座按名字接进几何节点)
-ENGINE = "engine"              # 渲染引擎被换(表面闭包与能力答案按引擎建;灯只有宿主自己的原生灯节点)
 LOADED = "loaded"              # 插件数据一样都不在:开了一个文件,或着色栈刚载入(插件数据从不写进 .blend)
 APPENDED = "appended"          # 材质/对象不经导入进场(从别的文件 append):它们引用的插件数据是死的
 
-ALL_FACTS = frozenset((OBJECTS, MATERIALS, CAMERA, LIGHT_SET, LIGHT_VALUES, WORLD, RIG, ENGINE, LOADED, APPENDED))
+ALL_FACTS = frozenset((OBJECTS, MATERIALS, CAMERA, WORLD, RIG, LOADED, APPENDED))
 
 # 去抖窗口:批量导入的几百次 announce、相机拖动的每帧变更,都收敛成末尾的一次落地。
 DEBOUNCE_SECONDS = 0.1
@@ -90,7 +86,7 @@ class Change:
     """一次落地要处理的变更:脏了哪些事实、这批新造了什么、范围是不是整场景。
 
     ``whole_scene`` 为真时,已经存在的产物也失效了(相机动了 → 每个描边壳的视图基都
-    过期;灯集合变了 → 每个材质的兑现分支都可能变),所以阶段必须扫全场,而不是只看
+    过期;世界变了 → 每个材质的环境兑现都过期),所以阶段必须扫全场,而不是只看
     这批新对象。"""
 
     __slots__ = ("facts", "objects", "materials", "whole_scene", "scene", "force")
@@ -131,29 +127,24 @@ def _run_plugin_data(change):
 
 
 def _run_capabilities(change):
-    """材质的环境查询兑现面重接。两个触发者:**世界被换**(环境采样是建组时快照)与
-    **渲染引擎被换**(表面闭包与能力答案按引擎建,EEVEE 的 Light Accumulation 到别的引擎是
-    空闭包,别的引擎的 Emission 回到 EEVEE 则灯链非法 —— 两个方向都是整场全黑)。
+    """材质的环境查询兑现面重接。唯一的触发者是**世界被换或被改**:环境采样是建组时快照。
 
-    灯**一概不进这条路** —— 材质树读的是宿主自己的原生灯节点,加灯/删灯/挪灯/换色由
-    宿主的光循环自己吃掉;这边只在灯集合变化时重挑主光身份(light-roles 阶段)。
-    唯一还绑灯的是用户主动指定的逐角色覆盖灯,由设置它的算子对那一张材质单独重接。
-
+    灯**一概不进这条路**,也不进任何一条:材质树读的是宿主自己的原生灯节点(主光身份是原生
+    is_sun),加灯/删灯/挪灯/转灯/换色由宿主的光循环当场吃掉,插件一个字节都不写。
     这条纪律的理由是量出来的:重接是 O(材质 × 树),单张 NPR 角色材质 ~0.8s、24 张 20 秒。
     摆灯是美术每秒都在做的事,绝不能和它挂钩。
 
-    材质上记着它的答案按哪一份场景状态(引擎 + 世界内容)建的,状态没变的材质不重接 ——
-    导入先定世界再建材质,紧跟着的这一次重接原本是把刚建好的兑现面整场重做一遍。
-    「重建派生态」强制,不看记号。"""
+    材质上记着它的答案按哪一份世界内容建的,没变的材质不重接 —— 导入先定世界再建材质,
+    紧跟着的这一次重接原本是把刚建好的兑现面整场重做一遍。「重建派生态」强制,不看记号。"""
     scope = None if change.whole_scene else change.materials
     return material_builder.rewire_capabilities(scope, force=change.force)
 
 
-def _run_light_roles(_change):
-    """灯上那一格(主光身份与朝向)重刷。灯的增删/位姿/颜色都走这条 —— 它只改灯上的一个自定义属性,
-    宿主的光循环下一帧就按新身份走;没有任何 CPU 写纹理,所以挪灯不再拖着材质重求值。新材质进场也走这条:
-    场上还没有灯时由它立起兜底 Sun,一批材质只刷一次,不在每张材质的实例化里各刷一遍。"""
-    return material_builder.refresh_light_roles()
+def _run_shadow_sets(change):
+    """平行光的投影排除集:声明自己的投影不进平行光级联的物体收在一个全排除的集合里(见 shadow_casting),它是每一盏
+    平行光的遮挡集合 —— 着色栈把每一盏平行光都当主光照。东西进场时给还没有遮挡集合的平行光挂上,排除集与平行光
+    谁先进场都一样;用户自己指了遮挡集合的灯不动。"""
+    return shadow_casting.bind_directional_lights(change.scene)
 
 
 def _run_vertex(change):
@@ -205,16 +196,16 @@ def _run_post(change):
 STAGES = (
     # 插件数据不在文件里:先按记录把材质编出来,后面各阶段才有东西可接。
     Stage("plugin-data", (LOADED, APPENDED), _run_plugin_data),
-    Stage("capabilities", (WORLD, ENGINE), _run_capabilities),
-    Stage("light-roles", (LIGHT_SET, LIGHT_VALUES, LOADED, MATERIALS, APPENDED), _run_light_roles),
+    Stage("capabilities", (WORLD,), _run_capabilities),
+    Stage("shadow-sets", (OBJECTS,), _run_shadow_sets),
     Stage("vertex", (OBJECTS, MATERIALS, LOADED, APPENDED), _run_vertex),
     Stage("camera-basis", (CAMERA, LOADED, APPENDED), _run_camera_basis),
     Stage("rig-basis", (OBJECTS, MATERIALS, RIG, LOADED, APPENDED), _run_rig_basis),
     # 后处理读的其实是「这个场景现在在放游戏内容了吗」:网格、材质、游戏自己的灯,
     # 任何一样进场都是证据(展示台可以只上太阳不上美术,那时也该有 tonemap)。
-    # 装过就跳过,所以在灯上反复触发也只是一次 installed() 判断;相机事实含出图尺寸,
+    # 装过就跳过,所以反复触发也只是一次 installed() 判断;相机事实含出图尺寸,
     # 泛光金字塔的级数与各级尺寸跟着它走,尺寸没变时重建图链也只是一次签名比较。
-    Stage("post", (OBJECTS, MATERIALS, LIGHT_SET, CAMERA, LOADED), _run_post),
+    Stage("post", (OBJECTS, MATERIALS, CAMERA, LOADED), _run_post),
 )
 
 
@@ -240,9 +231,6 @@ def announce(*datablocks):
         if isinstance(block, bpy.types.Object):
             facts.add(OBJECTS)
             objects.append(block)
-            # 灯是自己进场的:兑现分支按「场上有哪些灯」建,多一盏就得重接。
-            if block.type == "LIGHT":
-                facts.add(LIGHT_SET)
         elif isinstance(block, bpy.types.Material):
             facts.add(MATERIALS)
             materials.append(block)
@@ -359,42 +347,17 @@ def rebuild_all():
 
 
 # ---- 监视器:没有生产者的那半边 ----
-# 加载器造东西会 announce;用户拖相机、挪灯、改输出分辨率没有生产者,只能看依赖图。
-# 两条闸分开判,因为代价差一个数量级:相机签名是 O(1),灯签名要扫全场对象。
+# 加载器造东西会 announce;用户拖相机、换世界、改输出分辨率、改骨名没有生产者,只能看依赖图。
+# 灯不在这里:着色读的是宿主自己的光循环,挪灯/加灯没有任何派生态要重算。
 
-_light_set = None
-_light_values = None
 _camera = None
 _world = None
 _rig = None
-_engine = None
 _counts = None
 
 
-def _light_set_signature(scene):
-    """谁是主光的输入:灯的增删/类型与渲染在场 —— 灯自己的相机图标与视图层里集合的排除/相机图标(着色栈按渲染在场
-    挑主光;眼睛只管视口,拨眼睛不重挑)。"""
-    signature = []
-    for obj in scene.objects:
-        if obj.type != "LIGHT":
-            continue
-        signature.append((obj.name, obj.data.type, obj.hide_render, tuple(sorted(c.name for c in obj.users_collection))))
-    signature.sort()
-    layers = []
-
-    def walk(layer_collection):
-        layers.append((layer_collection.name, layer_collection.exclude, layer_collection.collection.hide_render))
-        for child in layer_collection.children:
-            walk(child)
-
-    for view_layer in scene.view_layers:
-        walk(view_layer.layer_collection)
-    return tuple(signature), tuple(layers)
-
-
 def _world_signature(scene):
-    """世界的身份。环境采样是各材质建组时的快照,换世界与改世界是仅有的两件还需要重接兑现面的事
-    —— 所以它是独立事实,不再混在灯集合签名里(混着的时候,加一盏灯也会触发全场重接)。"""
+    """世界的身份。环境采样是各材质建组时的快照,换世界与改世界是仅有的两件还需要重接兑现面的事。"""
     return scene.world.name_full if scene.world is not None else None
 
 
@@ -411,25 +374,6 @@ def _world_edited(scene, depsgraph):
         if block == world or (world.node_tree is not None and block == world.node_tree):
             return True
     return False
-
-
-def _light_values_signature(scene):
-    signature = []
-    for obj in scene.objects:
-        if obj.type != "LIGHT":
-            continue
-        light = obj.data
-        signature.append((
-            obj.name,
-            tuple(round(c, 5) for row in obj.matrix_world for c in row),
-            tuple(round(c, 5) for c in light.color),
-            round(light.energy, 5),
-            round(getattr(light, "spot_size", 0.0), 5),
-            round(getattr(light, "spot_blend", 0.0), 5),
-            round(light.specular_factor, 5),
-        ))
-    signature.sort()
-    return tuple(signature)
 
 
 def _camera_signature(scene):
@@ -473,16 +417,6 @@ def _rig_touched(depsgraph):
     return False
 
 
-def _lights_touched(depsgraph):
-    for update in depsgraph.updates:
-        block = update.id
-        if isinstance(block, (bpy.types.Light, bpy.types.World, bpy.types.Collection)):
-            return True
-        if isinstance(block, bpy.types.Object) and getattr(block, "type", "") == "LIGHT":
-            return True
-    return False
-
-
 def _camera_touched(depsgraph):
     for update in depsgraph.updates:
         block = update.id
@@ -500,11 +434,8 @@ def _datablock_counts():
 
 
 def _resnapshot(scene):
-    global _light_set, _light_values, _camera, _world, _rig, _engine, _counts
+    global _camera, _world, _rig, _counts
     _counts = _datablock_counts()
-    _engine = scene.render.engine
-    _light_set = _light_set_signature(scene)
-    _light_values = _light_values_signature(scene)
     _camera = _camera_signature(scene)
     _world = _world_signature(scene)
     _rig = _rig_signature(scene)
@@ -512,38 +443,22 @@ def _resnapshot(scene):
 
 @bpy.app.handlers.persistent
 def _on_depsgraph_update(scene, depsgraph):
-    global _light_set, _light_values, _camera, _world, _rig, _engine, _counts
+    global _camera, _world, _rig, _counts
     if _flushing:
         return
     counts = _datablock_counts()
     if _counts is not None and (counts[0] > _counts[0] or counts[1] > _counts[1]):
         _mark((APPENDED,), whole_scene=True)
     _counts = counts
-    # 引擎签名是一次字符串比较,每拍都问;它不靠任何被更新的数据块判"碰没碰"。
-    # 注册时没有场景可采(启动期 register 跑在文件加载之前)的话,第一拍只采基准不算换引擎。
-    if _engine is None:
-        _engine = scene.render.engine
-    elif scene.render.engine != _engine:
-        _engine = scene.render.engine
-        _mark((ENGINE,), whole_scene=True)
     if _rig_touched(depsgraph):
         rig = _rig_signature(scene)
         if rig != _rig:
             _rig = rig
             _mark((RIG,), whole_scene=True)
-    if _lights_touched(depsgraph):
-        world = _world_signature(scene)
-        if world != _world or _world_edited(scene, depsgraph):
-            _world = world
-            _mark((WORLD,), whole_scene=True)
-        light_set = _light_set_signature(scene)
-        light_values = _light_values_signature(scene)
-        if light_set != _light_set:
-            _light_set, _light_values = light_set, light_values
-            _mark((LIGHT_SET,), whole_scene=True)
-        elif light_values != _light_values:
-            _light_values = light_values
-            _mark((LIGHT_VALUES,), whole_scene=True)
+    world = _world_signature(scene)
+    if world != _world or _world_edited(scene, depsgraph):
+        _world = world
+        _mark((WORLD,), whole_scene=True)
     if _camera_touched(depsgraph):
         camera = _camera_signature(scene)
         if camera != _camera:
@@ -554,7 +469,7 @@ def _on_depsgraph_update(scene, depsgraph):
 @bpy.app.handlers.persistent
 def _on_load_post(_path):
     """开了一个文件:插件数据从不写进 .blend,此刻一样都不在 —— 整场景的派生态照内容现建。有界面时交给去抖
-    计时器(依赖图求值过之后灯的可见性才答得准);后台没有事件循环、计时器永远不响,求值一次当场落地。"""
+    计时器;后台没有事件循环、计时器永远不响,求值一次当场落地。"""
     global _pending_whole_scene
     _pending_facts.clear()
     del _pending_objects[:]

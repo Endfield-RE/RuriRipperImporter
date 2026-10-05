@@ -129,6 +129,7 @@ class _Materialisation:
             self._build_rig(key)
         for node in self.statement.nodes:
             self._build_node(node, roots)
+        self._stamp_light_frames()
         for entry in self.statement.report:
             self.warnings.append("{0} x{1}: {2}".format(entry.what, entry.count, entry.detail))
         for name, count in sorted(self.unread_parameters.items()):
@@ -150,6 +151,19 @@ class _Materialisation:
             rig=None if first_rig is None else first_rig[0],
             objects=self.objects, missing=self.missing, warnings=self.warnings,
             imported=len(self.objects))
+
+    def _stamp_light_frames(self):
+        """The world orientation of every light this run placed (:func:`light_parameters.stamp_frame`), once the
+        hierarchy it hangs in is complete: a world matrix is the chain of parent, parent inverse and local matrices."""
+        for obj in self.objects:
+            if obj.type != "LIGHT":
+                continue
+            world = obj.matrix_basis
+            child = obj
+            while child.parent is not None:
+                world = child.parent.matrix_basis @ child.matrix_parent_inverse @ world
+                child = child.parent
+            light_parameters.stamp_frame(obj, world)
 
     def _fit_shadow_pool(self):
         """EEVEE's virtual shadow maps draw their pages from one pool shared by every light,
