@@ -68,13 +68,3 @@ def source_path():
 
 def manifest_path():
     return _required().manifest_path()
-
-
-def environment_path():
-    """The reflection cubemap the ported shader documents as a requirement."""
-    return _required().asset("CharCubemap.exr")
-
-
-def color_lut_path():
-    """The grading strip shipped beside the shader."""
-    return _required().asset("CharShowLut3D.tga")

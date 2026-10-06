@@ -1,24 +1,20 @@
 """What Painter's viewport shows the ported shader through.
 
-The generated shader carries its own requirements in its header: the reflection
-cubemap it was captured against, the grading strip shipped beside it, and -- the
-one that is a correctness matter rather than a preference -- that the display must
-NOT tone map, because the shader already applies the game's own tonemap and doing
-it twice is simply wrong.
+The generated shader writes the final picture: its last step is the game's own output
+transform, the one Blender's compositor applies. So the display has exactly one
+requirement, and it is a correctness matter rather than a preference -- it must add
+nothing on top: Linear tone mapping and no colour LUT.
 
-An import applies all three. This is where they can be looked at and applied again
-without one: a project opened from disk, a resource replaced by hand, or a colour
-managed project that refused the tone mapping the first time all leave the display
-saying something other than what the shader asked for, and until now nothing said
-so anywhere.
+An import applies it. This is where it can be looked at and applied again without one:
+a project opened from disk, or a colour managed project that refused the tone mapping
+the first time, leave the display changing the picture a second time, and until now
+nothing said so anywhere.
 
 Registered as a "look" section (:mod:`Kernel.app.look`), so the tab that asks what
 the frame finally looks like gets this host's answer without naming this host.
 """
 
 from __future__ import annotations
-
-import os
 
 from . import shader, sp_apply
 from ...Kernel import host as host_port
@@ -32,7 +28,7 @@ STATE = "ruri_display"
 #: What each switch is called and what it turns on, keyed by the option the
 #: browser already remembers -- so the words are said once and this section reads
 #: the same values the import does.
-_SWITCHES = ("apply_environment", "apply_color_lut", "force_linear_tonemap")
+_SWITCHES = ("neutral_display",)
 
 DISPLAY = Schema("Display", """The display section's own state: the last thing it
 did.""", (
@@ -53,7 +49,7 @@ def _identified(context):
 
 
 def _apply(context, arguments):
-    """Set the environment, the LUT and the tone mapping the shader documents."""
+    """Put the display back to adding nothing on top of the shader."""
     state = state_of(context)
     lines = []
     try:
@@ -63,7 +59,7 @@ def _apply(context, arguments):
         state.status = "{0}: {1}".format(type(exc).__name__, exc)
         return {"CANCELLED"}
     state.status = "  ·  ".join(line for line in lines if not line.startswith("!! ")) \
-        or "nothing to apply -- every switch below is off."
+        or "nothing to apply -- the switch below is off."
     for line in lines:
         host_port.current().log(host_port.WARNING if line.startswith("!! ")
                                 else host_port.INFO, line)
@@ -72,20 +68,9 @@ def _apply(context, arguments):
 
 APPLY = command.COMMANDS.define(
     "ruri.display_apply", "Apply Display Settings", _apply,
-    description="Set the reflection environment, the colour LUT and the tone mapping the "
-                "ported shader documents as its requirements",
+    description="Set the display to add nothing on top of the shader: Linear tone mapping, "
+                "no colour LUT",
     icon="IMPORT", requires=host_port.DisplaySettings, poll=_identified)
-
-
-def _requirement(box, label, path):
-    """One requirement, and whether the file the shader ships it as is there. A
-    requirement whose asset is missing is the difference between a wrong-looking
-    viewport and a wrong-looking viewport you can explain."""
-    line = box.row()
-    present = bool(path) and os.path.isfile(path)
-    line.alert = not present
-    line.label(text="{0}: {1}".format(label, os.path.basename(path) if path else "none"),
-               icon="CHECKMARK" if present else "ERROR")
 
 
 def draw(layout, context):
@@ -96,21 +81,8 @@ def draw(layout, context):
         box.label(text="No generated shader states a requirement: {0}.".format(shader.absence()),
                   icon="INFO")
         return
-
-    try:
-        environment, lut = shader.environment_path(), shader.color_lut_path()
-    except Exception as exc:
-        alert = box.row()
-        alert.alert = True
-        alert.label(text="{0}: {1}".format(type(exc).__name__, exc), icon="ERROR")
-        return
-
-    _requirement(box, "Environment", environment)
-    _requirement(box, "Colour LUT", lut)
-    # 这条不是偏好而是对错:着色器自己已经做过一次 tonemap,显示端再做一次就是做了两遍。
-    box.label(text="Tone mapping: Linear -- the shader tonemaps itself, and a second "
-                   "pass is simply wrong.", icon="INFO")
-
+    box.label(text="Tone mapping Linear, no colour LUT -- the shader writes the final picture, "
+                   "and a second pass changes it.", icon="INFO")
     switches = box.column(align=True)
     browser = app_browser.state_of(context)
     for key in _SWITCHES:

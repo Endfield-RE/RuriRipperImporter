@@ -923,19 +923,9 @@ RuriGBufferData ruriZeroRuriGBufferData() {
 SparseCoord ruriSparseCoord;
 
 //----------------------------------------------------------------------region 宿主胶水(配方)
-//: param custom { "default": 0, "label": "灯光旋转 X", "min": 0, "max": 360, "group": "0 光照" }
-uniform int i_LightRotX;
-//: param custom { "default": 30, "label": "灯光旋转 Y", "min": 0, "max": 360, "group": "0 光照" }
-uniform int i_LightRotY;
-//: param custom { "default": 0, "label": "灯光旋转 Z", "min": 0, "max": 360, "group": "0 光照" }
-uniform int i_LightRotZ;
-//: param custom { "default": [1.0, 1.0, 1.0], "label": "主光颜色", "widget": "color", "group": "0 光照" }
-uniform vec3 v_MainLightColor;
+// 主光是本宿主自己的主光:环境的主光方向(世界系,随显示设置里的环境旋转一起转)、颜色恒白、不衰减不投影 —— 与宿主自带着色器照的是同一盏。
 //: param custom { "default": 0.0, "label": "时间 Time", "min": 0.0, "max": 100.0, "group": "0 光照" }
 uniform float f_RuriTime;
-mat3 ruriRotX(float r) { float c = cos(r), s = sin(r); return mat3(1,0,0, 0,c,s, 0,-s,c); }
-mat3 ruriRotY(float r) { float c = cos(r), s = sin(r); return mat3(c,0,-s, 0,1,0, s,0,c); }
-mat3 ruriRotZ(float r) { float c = cos(r), s = sin(r); return mat3(c,s,0, -s,c,0, 0,0,1); }
 // 物体→世界。本宿主一棵着色器服务整个模型,没有「物体」可问,所以这三列由桥算好随材质行过来(它同时知道物体摆位、负载根节点为对齐 Y 轴带的旋转、以及两种物体空间约定之间的 Y/Z 互换——那是个反射不是旋转,所以假定单位阵不是「转错了」而是「左右反了」)。缺省是单位阵:没人告诉就跟从前一模一样。
 //: param custom { "default": [1, 0, 0, 0], "label": "物体→世界 列0", "group": "R 引擎态" }
 uniform vec4 i_ObjectToWorld0;
@@ -945,10 +935,6 @@ uniform vec4 i_ObjectToWorld1;
 uniform vec4 i_ObjectToWorld2;
 mat4 ruriObjectToWorld() {
     return mat4(i_ObjectToWorld0, i_ObjectToWorld1, i_ObjectToWorld2, vec4(0.0, 0.0, 0.0, 1.0));
-}
-vec3 ruriMainLightDir() {
-    mat3 rot = ruriRotY(radians(float(i_LightRotY))) * ruriRotX(radians(float(i_LightRotX))) * ruriRotZ(radians(float(i_LightRotZ)));
-    return normalize(rot * light_main.xyz);
 }
 // 单趟等价:F 腿回读的 gbuffer 就是本表面 G 腿写入的自身数据 —— 直接用本片元的表面态回声。
 GBufferData ruriSelfGBuffer(RuriData rd) {
@@ -976,8 +962,8 @@ vec3 LinearToSRGB(vec3 c) { return vec3(LinearToSRGB(c.r), LinearToSRGB(c.g), Li
 #define UNITY_MATRIX_I_V (inverse(uniform_camera_view_matrix))
 #define UNITY_MATRIX_M (ruriObjectToWorld())
 #define UNITY_MATRIX_V (uniform_camera_view_matrix)
-#define _MainLightColor (vec4(v_MainLightColor, 1.0))
-#define _MainLightPosition (vec4(ruriMainLightDir(), 0.0))
+#define _MainLightColor (vec4(1.0, 1.0, 1.0, 1.0))
+#define _MainLightPosition (vec4(normalize(light_main.xyz), 0.0))
 #define _ScaledScreenParams (vec4(1920.0, 1080.0, 1.0 + 1.0/1920.0, 1.0 + 1.0/1080.0))
 #define _ScreenParams (vec4(1920.0, 1080.0, 1.0 + 1.0/1920.0, 1.0 + 1.0/1080.0))
 #define _Time (vec4(0.05, 1.0, 2.0, 3.0) * f_RuriTime)
@@ -1008,30 +994,6 @@ float ruriBakedOcclusion(SparseCoord coord, float absent)
 vec3 ruriBakedNormal(SparseCoord coord, vec3 absent)
 {
     return (base_normal_texture.is_set || normal_texture.is_set || height_texture.is_set) ? getTSNormal(coord) : absent;
-}
-
-vec3 ruriPrefilteredEnvironment(vec3 directionWS, float perceptualRoughness)
-{
-    vec3 reflection = normalize(worldToEnvSpace(directionWS));
-    if (perceptualRoughness < 0.01)
-        return envSample(reflection, 0.0);
-    vec3 tangent = normalize(cross(abs(reflection.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), reflection));
-    vec3 bitangent = cross(reflection, tangent);
-    vec3 radiance = vec3(0.0);
-    float weight = 0.0;
-    for (int i = 0; i < nbSamples; ++i)
-    {
-        vec3 halfway = importanceSampleGGX(fibonacci2DDitheredTemporal(i, nbSamples), tangent, bitangent, reflection, perceptualRoughness);
-        vec3 incoming = -reflect(reflection, halfway);
-        float ndl = dot(reflection, incoming);
-        if (ndl > 0.0)
-        {
-            float ndh = max(1e-8, dot(reflection, halfway));
-            radiance += envSample(incoming, computeLOD(incoming, probabilityGGX(ndh, ndh, perceptualRoughness))) * ndl;
-            weight += ndl;
-        }
-    }
-    return weight > 0.0 ? radiance / weight : envSample(reflection, 0.0);
 }
 
 vec4 ruriTransparentFrame(vec3 factor, float coverage)
@@ -1098,13 +1060,6 @@ float4 ruriRead_SplitNormalMap(float2 uv) {
 }
 
 //----------------------------------------------------------------------endregion
-
-// 角色环境 cube 的 mip 律:IBL 镜面与清漆两处都按 <c>mip = 1.2·log2(r) + 5</c> 取层,
-// 逆过来即每层预滤波的感知粗糙度;负 mip 被硬件夹到第 0 层。
-float CubeMipToPerceptualRoughness_Endfield(float mip)
-{
-    return exp2((max(mip, 0.0) - 5.0) / 1.2);
-}
 
 vec3 UnpackNormalScale(vec4 packedNormal, float bumpScale)
 {
@@ -2342,7 +2297,7 @@ vec3 IBL_SpecularSplitSum_Endfield_Probe(vec3 V, vec3 N, float NdotV_spec, float
 {
     vec3 reflDir = reflect(-V, N);
     float cubeMip = log2(max(roughnessRaw, 0.001)) * 1.2 + 5.0;
-    vec4 cubeEnc = vec4(ruriPrefilteredEnvironment(reflDir, CubeMipToPerceptualRoughness_Endfield(cubeMip)), 1.0);
+    vec4 cubeEnc = vec4(0.2158605, 0.2158605, 0.2158605, 0.5);
     vec3 cubeSample = DecodeHDREnvironment(cubeEnc, unity_SpecCube0_HDR);
     return IBL_SplitSumCombine(cubeSample, NdotV_spec, roughness, specRampEnv, ambIntensity, ambCol);
 }
@@ -2765,7 +2720,7 @@ vec3 IBL_SpecularSplitSum_Endfield(vec3 V, vec3 N, float NdotV_spec, float rough
 {
     vec3 reflDir = reflect(-V, N);
     float cubeMip = log2(max(roughnessRaw, 0.001)) * 1.2 + 5.0;
-    vec3 cubeSample = vec4(ruriPrefilteredEnvironment(reflDir, CubeMipToPerceptualRoughness_Endfield(cubeMip)), 1.0).rgb;
+    vec3 cubeSample = vec4(0.2158605, 0.2158605, 0.2158605, 0.5).rgb;
     return IBL_SplitSumCombine(cubeSample, NdotV_spec, roughness, specRampEnv, ambIntensity, ambCol);
 }
 
@@ -2773,7 +2728,7 @@ vec3 BRDF_ClearCoat_IBL_Burley(vec3 V, vec3 ccN, float ccPercRough, float ccAlph
 {
     vec3 ccReflDir = reflect(-V, ccN);
     float ccCubeMip = log2(max(ccPercRough, 0.001)) * 1.2 + 5.0;
-    vec3 ccCubeSmp = vec4(ruriPrefilteredEnvironment(ccReflDir, CubeMipToPerceptualRoughness_Endfield(ccCubeMip)), 1.0).rgb;
+    vec3 ccCubeSmp = vec4(0.2158605, 0.2158605, 0.2158605, 0.5).rgb;
     float ccNdotV_ibl = saturate(dot(ccN, V));
     float ccDfgX;
     float ccDfgY;

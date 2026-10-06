@@ -5,9 +5,9 @@ streamed renderer also whether that shadow falls in the directional light's
 cascades. Shadows-only is object visibility. The cascades have no per-object
 switch here: an object blocks a light or it does not, per light, and that is
 light linking. The objects that cast for local lights only are gathered in one
-collection, each excluded, and that collection is the blocker set of whichever
-light the shading stacks pick as their main light -- an exclude-only set leaves
-every other object blocking it.
+collection, each excluded, and that collection is the blocker set of every
+directional light -- the shading stacks light each of them as their main light --
+and an exclude-only set leaves every other object blocking it.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def shadow_only(obj):
 
 
 def exclude_from_main_light(obj):
-    """Keep ``obj`` from blocking the main light while it blocks every other one."""
+    """Keep ``obj`` from blocking the directional lights while it blocks every other one."""
     collection = bpy.data.collections.get(MAIN_LIGHT_EXCLUSIONS)
     if collection is None:
         collection = bpy.data.collections.new(MAIN_LIGHT_EXCLUSIONS)
@@ -43,17 +43,17 @@ def exclude_from_main_light(obj):
     collection.collection_objects[len(collection.collection_objects) - 1].light_linking.link_state = "EXCLUDE"
 
 
-def bind_main_light(main):
-    """Make the exclusion set the blocker set of ``main`` and of no other light."""
+def bind_directional_lights(scene):
+    """Make the exclusion set the blocker set of every directional light in ``scene`` that has none
+    yet; a light the user gave a blocker set of their own keeps it. Returns how many were bound."""
     collection = bpy.data.collections.get(MAIN_LIGHT_EXCLUSIONS)
     if collection is None:
-        return
-    for obj in bpy.data.objects:
-        if obj.type != "LIGHT":
+        return 0
+    bound = 0
+    for obj in scene.objects:
+        if obj.type != "LIGHT" or obj.data.type != "SUN" or obj.library is not None:
             continue
-        linking = obj.light_linking
-        if obj == main:
-            if linking.blocker_collection != collection:
-                linking.blocker_collection = collection
-        elif linking.blocker_collection == collection:
-            linking.blocker_collection = None
+        if obj.light_linking.blocker_collection is None:
+            obj.light_linking.blocker_collection = collection
+            bound += 1
+    return bound

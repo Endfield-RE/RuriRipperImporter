@@ -83,13 +83,6 @@ CAPABILITY_REWIRES = extensions.point(
 #: used to rebuild every fulfilment node it had just built (445 s of a 537 s flush).
 CAPABILITY_STATE_PROPERTY = "ruri_capability_state"
 
-#: ``refresh()``. Re-stamps WHICH LIGHT IS THE MAIN ONE -- a per-light custom
-#: property the stack's own light loop reads. No texture stands in for lights, so
-#: a light that moves costs the shading nothing.
-LIGHT_ROLE_REFRESHERS = extensions.point(
-    "blender.light_roles",
-    "Re-picking the main light for each shading stack after the light set changed.")
-
 #: A whole MODULE rather than one function: post-processing owns scene-level
 #: state (the compositor tree, the view transform), so it has to be able to hand
 #: that state back as well as take it -- install / uninstall / installed.
@@ -151,6 +144,13 @@ LIGHT_PARAMETERS = extensions.point(
 #: reads zeros, no fade. Declared on this registry module because every stack reaches the
 #: host through it.
 LIGHT_FADE_PROPERTY = "ruri_light_fade"
+
+#: The LIGHT attribute every stack's light template reads a light's world orientation
+#: through -- the one thing about a light the host's light loop does not hand over: the
+#: (x, y, z) of its world rotation quaternion with w >= 0. The host stamps it on a stated
+#: light once the import has placed it (:mod:`light_parameters`), the content it was stated
+#: with like its culling box; a light without it reads zeros, no turn.
+LIGHT_FRAME_PROPERTY = "ruri_light_frame"
 
 #: ``render_footprint_attributes() -> [name, ...]``. Scene attributes a stack reads the
 #: world size of one render output pixel through: (orthographic term, perspective term
@@ -252,14 +252,6 @@ def register_capability_rewire(rewire):
 
 def unregister_capability_rewire(rewire):
     CAPABILITY_REWIRES.remove(rewire)
-
-
-def register_light_role_refresh(refresh):
-    LIGHT_ROLE_REFRESHERS.add(refresh)
-
-
-def unregister_light_role_refresh(refresh):
-    LIGHT_ROLE_REFRESHERS.remove(refresh)
 
 
 def register_post_stage(stage):
@@ -579,12 +571,10 @@ def _world_state(world):
 
 def capability_state(scene):
     """Everything a material's environment answers read from the scene, as one
-    comparable digest: the render engine (closures and answers are built per engine)
-    and the world's content (the environment is a snapshot of its nodes). A
-    material's own main-light override is per material and set by an operator that
-    rewires that material itself, forced."""
-    state = (scene.render.engine, _world_state(scene.world))
-    return hashlib.sha1(repr(state).encode("utf-8")).hexdigest()
+    comparable digest: the world's content (the environment is a snapshot of its
+    nodes). Lights are not in it -- the stacks read them through the host's own light
+    loop, live."""
+    return hashlib.sha1(repr(_world_state(scene.world)).encode("utf-8")).hexdigest()
 
 
 def rewire_capabilities(materials=None, force=False):
@@ -602,31 +592,6 @@ def rewire_capabilities(materials=None, force=False):
             material[CAPABILITY_STATE_PROPERTY] = state
             rewired += 1
     return rewired
-
-
-def refresh_light_roles():
-    """Re-stamp the main-light role. Unlike the rewire there is nothing
-    per-material to count -- each stack re-picks ONE light -- so the report counts
-    the refreshers that ran.
-
-    The role is stamped on the light itself and every stack's materials read the same
-    stamp, so every stack has to pick the same light. Stacks that disagree are stacks
-    deployed from different generator builds, and the last one to stamp would silently
-    decide for all of them -- a stack of one game switching off another game's whole
-    main-light pass -- so a disagreement is refused and names the lights it is between."""
-    chosen = {}
-    for refresh in LIGHT_ROLE_REFRESHERS:
-        light = refresh()
-        chosen[light.name if light is not None else None] = light
-    if len(chosen) > 1:
-        raise RuntimeError(
-            "[material] the loaded shading stacks pick different main lights {0}; they come "
-            "from different generator builds -- redeploy the stale ones".format(
-                sorted(name or "(none)" for name in chosen)))
-    if chosen:
-        from . import shadow_casting
-        shadow_casting.bind_main_light(next(iter(chosen.values())))
-    return len(LIGHT_ROLE_REFRESHERS)
 
 
 def apply_post_stages(scene, force=False):

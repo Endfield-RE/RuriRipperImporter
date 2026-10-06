@@ -122,86 +122,12 @@ class RURI_OT_post_reset(bpy.types.Operator):
         return {"FINISHED"}
 
 
-MAIN_LIGHT_OVERRIDE = "ruri_main_light"
-
-
-def _ruri_materials(objects):
-    """The Ruri-built materials of these objects, in a stable order.
-
-    ``ruri_uber_part`` is written by the generated stack when it builds a
-    material, so it is the one honest test of "we made this" -- no name matching.
-    """
-    found = {}
-    for obj in objects:
-        for slot in getattr(obj, "material_slots", ()):
-            mat = slot.material
-            if mat is not None and mat.get("ruri_uber_part") is not None:
-                found[mat.name] = mat
-    return [found[k] for k in sorted(found)]
-
-
-def _scene_light_summary(scene):
-    """What the shading resolves to when no material overrides it."""
-    suns = sorted((o.name for o in scene.objects
-                   if o.type == "LIGHT" and o.data.type == "SUN"))
-    if suns:
-        return suns[0], "Scene sun"
-    return None, "Forward light (follows the view)"
-
-
-class RURI_OT_main_light_set(bpy.types.Operator):
-    bl_idname = "ruri.main_light_set"
-    bl_label = "Override Main Light"
-    bl_description = ("Point the selected objects' Ruri materials at this light instead of the "
-                      "scene sun, and re-answer their lighting queries")
-    bl_options = {"REGISTER"}
-
-    light: bpy.props.StringProperty(name="Light")
-
-    def execute(self, context):
-        light = bpy.data.objects.get(self.light)
-        if light is None or light.type != "LIGHT":
-            self.report({"ERROR"}, "'{0}' is not a light object.".format(self.light))
-            return {"CANCELLED"}
-        mats = _ruri_materials(context.selected_objects)
-        if not mats:
-            self.report({"WARNING"}, "The selection has no Ruri-built materials.")
-            return {"CANCELLED"}
-        # The override lives on the MATERIAL because the node graph is built per
-        # material -- that is the scope this can actually act on. The selection
-        # is just how the user points at it.
-        for mat in mats:
-            mat[MAIN_LIGHT_OVERRIDE] = light
-        count = material_builder.rewire_capabilities(mats, force=True)
-        self.report({"INFO"}, "{0} material(s) now lit by '{1}'.".format(count, light.name))
-        return {"FINISHED"}
-
-
-class RURI_OT_main_light_clear(bpy.types.Operator):
-    bl_idname = "ruri.main_light_clear"
-    bl_label = "Use Scene Light"
-    bl_description = "Drop the override and go back to the scene sun (or the forward light)"
-    bl_options = {"REGISTER"}
-
-    def execute(self, context):
-        mats = [m for m in _ruri_materials(context.selected_objects)
-                if m.get(MAIN_LIGHT_OVERRIDE) is not None]
-        if not mats:
-            self.report({"WARNING"}, "Nothing in the selection is overridden.")
-            return {"CANCELLED"}
-        for mat in mats:
-            del mat[MAIN_LIGHT_OVERRIDE]
-        count = material_builder.rewire_capabilities(mats, force=True)
-        self.report({"INFO"}, "{0} material(s) back on the scene light.".format(count))
-        return {"FINISHED"}
-
-
 class RURI_OT_derived_rebuild(bpy.types.Operator):
     bl_idname = "ruri.derived_rebuild"
     bl_label = "Rebuild Derived State"
     bl_description = ("Force-rebuild everything this add-on derives from the scene: the vertex "
                       "stack (fur shells, outlines, face basis), how every Ruri material reads "
-                      "the lights and world, the light tables and the post chain. The vertex "
+                      "the world, and the post chain. The vertex "
                       "stack is otherwise built ONLY when you import from the game -- a camera "
                       "move just re-fills its uniforms -- so this is also how you get outlines "
                       "back after deleting the modifier, or pick up material edits made by hand")
@@ -216,57 +142,14 @@ class RURI_OT_derived_rebuild(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _draw_main_light(layout, context):
-    """Which light the game's shading reads.
-
-    The shader asks the scene one question -- "what is the main directional
-    light" -- and the answer is wired from Blender's own light object (its
-    matrix and colour, through drivers, so it stays live). This section is where
-    that answer gets redirected per character.
-    """
-    box = layout.box()
-    box.label(text="Main light", icon="LIGHT_SUN")
-
-    sun, fallback = _scene_light_summary(context.scene)
-    row = box.row()
-    row.label(text="Scene default")
-    row.label(text=sun or fallback, icon="LIGHT_SUN" if sun else "CAMERA_DATA")
-    box.operator(RURI_OT_derived_rebuild.bl_idname, icon="FILE_REFRESH")
-    # 派生态失败在画面上与「这个着色器本来就长这样」无法区分,所以它得一直挂在这里
-    # 喊,而不是只在控制台滚一行过去。
+def draw_derived_section(layout, context):
+    """派生态的强制重建,与最近一次落地炸掉的阶段:派生态失败在画面上与「这个着色器本来就长这样」无法区分,
+    所以它得一直挂在这里喊,而不是只在控制台滚一行过去。"""
+    layout.operator(RURI_OT_derived_rebuild.bl_idname, icon="FILE_REFRESH")
     if derived_state.LAST_ERROR:
-        alert = box.row()
+        alert = layout.row()
         alert.alert = True
         alert.label(text=derived_state.LAST_ERROR, icon="ERROR")
-
-    mats = _ruri_materials(context.selected_objects)
-    if not mats:
-        box.label(text="Select an object to give it its own light.", icon="RESTRICT_SELECT_ON")
-        return
-
-    overridden = {m.name: m[MAIN_LIGHT_OVERRIDE] for m in mats
-                  if m.get(MAIN_LIGHT_OVERRIDE) is not None}
-    sub = box.column(align=True)
-    sub.label(text="Selected: {0} Ruri material(s)".format(len(mats)))
-    if overridden:
-        names = sorted({v.name for v in overridden.values() if v is not None})
-        sub.label(text="Overridden by: " + ", ".join(names), icon="LIGHT_DATA")
-        if len(overridden) != len(mats):
-            sub.label(text="{0} of them still on the scene light.".format(len(mats) - len(overridden)),
-                      icon="INFO")
-        sub.operator(RURI_OT_main_light_clear.bl_idname, icon="X")
-
-    picker = box.column(align=True)
-    picker.label(text="Light this selection with:")
-    lights = [o for o in context.scene.objects if o.type == "LIGHT"]
-    if not lights:
-        picker.label(text="This scene has no light objects.", icon="ERROR")
-        return
-    grid = picker.grid_flow(columns=2, even_columns=True, align=True)
-    for light in sorted(lights, key=lambda o: o.name):
-        op = grid.operator(RURI_OT_main_light_set.bl_idname, text=light.name,
-                           icon="LIGHT_" + light.data.type)
-        op.light = light.name
 
 
 def draw_materials_section(layout, context):
@@ -282,10 +165,6 @@ def draw_materials_section(layout, context):
     neutral spelling, because none of the things they pick exists in the other
     host."""
     layout.native(material_panel.draw_materials)
-
-
-def draw_main_light_section(layout, context):
-    _draw_main_light(layout, context)
 
 
 def draw_post_chain_section(layout, context):
@@ -353,8 +232,6 @@ _CLASSES = (
     RURI_OT_post_remove,
     RURI_OT_post_viewport_preview,
     RURI_OT_post_reset,
-    RURI_OT_main_light_set,
-    RURI_OT_main_light_clear,
     RURI_OT_derived_rebuild,
 )
 
@@ -363,7 +240,7 @@ _CLASSES = (
 #: of them registers none, and the tab says so instead of standing empty.
 _SECTIONS = (
     ("materials", "Materials", draw_materials_section, host_port.NodeMaterials),
-    ("main_light", "Main light", draw_main_light_section, host_port.SceneGraph),
+    ("derived", "Derived state", draw_derived_section, host_port.SceneGraph),
     ("post_chain", "Post chain", draw_post_chain_section, host_port.Compositor),
 )
 
